@@ -1,17 +1,37 @@
+import puppeteer from "puppeteer-core";
 import { ApifyClient } from "apify-client";
 import OpenAI from "openai";
 import type { CrawlerInput, CrawlerOutput } from "../types";
 
 /**
  * Crawler Tool Service
- * Crawlt eine Website mit Apify und extrahiert relevante Infos mit KI-Agent
+ * Crawlt eine Website zuerst mit Puppeteer (browserless), dann Apify als Fallback
  * Entspricht dem "Crawler Tool" Workflow in n8n
  * 
- * Flow:
- * 1. Apify Website Scraper (playwright:firefox) -> HTML
- * 2. HTML zu Markdown konvertieren
- * 3. KI-Agent extrahiert die gewünschten Informationen
+ * Flow (wie in n8n):
+ * 1. Puppeteer über WebSocket (browserless) versuchen
+ * 2. Bei SSL-Fehlern: URL zu http ändern und Apify nutzen
+ * 3. Bei 403/Forbidden: Apify als Fallback
+ * 4. HTML zu Markdown konvertieren
+ * 5. KI-Agent extrahiert die gewünschten Informationen
  */
+
+// Browserless WebSocket URL
+const BROWSERLESS_WS_ENDPOINT = process.env.BROWSERLESS_WS_ENDPOINT || "ws://browserless:3000/?token=6R0W53R135510";
+
+// SSL-Fehler die einen http-Fallback auslösen
+const SSL_ERRORS = [
+  "ERR_SSL_VERSION_OR_CIPHER_MISMATCH",
+  "ERR_CERT_COMMON_NAME_INVALID",
+  "ERR_SSL_PROTOCOL_ERROR",
+  "ERR_CERT_DATE_INVALID",
+];
+
+interface PuppeteerResult {
+  body: string;
+  footer: string;
+  error?: string;
+}
 
 function getApifyClient(): ApifyClient {
   const token = process.env.APIFY_API_TOKEN;
@@ -75,13 +95,78 @@ function htmlToText(html: string): string {
 }
 
 /**
+ * Prüft ob ein Fehler ein SSL-Fehler ist
+ */
+function isSSLError(error: string): boolean {
+  return SSL_ERRORS.some(sslErr => error.includes(sslErr));
+}
+
+/**
+ * Prüft ob der Content einen 403/Forbidden-Fehler enthält
+ */
+function isForbiddenResponse(content: string): boolean {
+  return content.includes("403") || content.toLowerCase().includes("forbidden");
+}
+
+/**
+ * Scrape Website mit Puppeteer über WebSocket (browserless)
+ * Entspricht dem "Puppeteer1" Node im n8n Workflow
+ */
+async function scrapeWithPuppeteer(url: string): Promise<PuppeteerResult> {
+  console.log(`[Crawler] Scraping with Puppeteer (browserless): ${url}`);
+  
+  let browser;
+  try {
+    // Verbinde zu browserless über WebSocket
+    browser = await puppeteer.connect({
+      browserWSEndpoint: BROWSERLESS_WS_ENDPOINT,
+    });
+
+    const page = await browser.newPage();
+    
+    // Timeout setzen
+    page.setDefaultNavigationTimeout(30000);
+    
+    // Navigiere zur URL
+    await page.goto(url, { waitUntil: "networkidle2" });
+
+    // Extrahiere body und footer (wie im n8n Script)
+    const result = await page.evaluate(`
+      (() => {
+        const body = document.body ? document.body.outerHTML : "";
+        const footer = document.querySelector("footer") ? document.querySelector("footer").outerHTML : "";
+        return { body, footer };
+      })()
+    `) as { body: string; footer: string };
+
+    console.log(`[Crawler] Puppeteer scraped ${result.body.length} chars from ${url}`);
+    
+    await page.close();
+    return result;
+    
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error(`[Crawler] Puppeteer error for ${url}:`, errorMessage);
+    return { body: "", footer: "", error: errorMessage };
+  } finally {
+    if (browser) {
+      try {
+        await browser.disconnect();
+      } catch (e) {
+        // Ignore disconnect errors
+      }
+    }
+  }
+}
+
+/**
  * Scrape Website mit Apify Web Scraper (playwright:firefox)
  * Entspricht dem "Apify1" Node im n8n Workflow
  */
 async function scrapeWithApify(url: string): Promise<string> {
   const client = getApifyClient();
 
-  console.log(`Scraping ${url} with Apify (playwright:firefox)...`);
+  console.log(`[Crawler] Scraping with Apify (playwright:firefox): ${url}`);
 
   // Web Scraper Actor mit playwright:firefox
   // https://apify.com/apify/web-scraper
@@ -108,12 +193,12 @@ async function scrapeWithApify(url: string): Promise<string> {
   const { items } = await client.dataset(run.defaultDatasetId).listItems();
 
   if (items.length === 0 || !items[0]) {
-    console.warn("No content found from Apify scraper");
+    console.warn("[Crawler] No content found from Apify scraper");
     return "";
   }
 
   const html = (items[0] as Record<string, unknown>).html as string || "";
-  console.log(`Scraped ${html.length} characters HTML from ${url}`);
+  console.log(`[Crawler] Apify scraped ${html.length} chars from ${url}`);
 
   return html;
 }
@@ -129,7 +214,7 @@ async function extractWithAI(content: string, what: string): Promise<string> {
 
   const userPrompt = `${content}\n\nBitte finde: ${what}`;
 
-  console.log(`Extracting info with AI: "${what.substring(0, 50)}..."`);
+  console.log(`[Crawler] Extracting with AI: "${what.substring(0, 50)}..."`);
 
   const response = await openai.chat.completions.create({
     model: "gpt-4o-mini",
@@ -140,7 +225,7 @@ async function extractWithAI(content: string, what: string): Promise<string> {
   });
 
   const result = response.choices[0]?.message?.content || "";
-  console.log(`AI extracted ${result.length} characters`);
+  console.log(`[Crawler] AI extracted ${result.length} chars`);
 
   return result;
 }
@@ -148,28 +233,71 @@ async function extractWithAI(content: string, what: string): Promise<string> {
 /**
  * Hauptfunktion: Crawlt Website und extrahiert Informationen
  * Entspricht dem kompletten "Crawler Tool" Workflow in n8n
+ * 
+ * Flow:
+ * 1. 2 Sekunden warten (wie Wait Node in n8n)
+ * 2. Puppeteer versuchen
+ * 3. Bei SSL-Fehler: URL zu http ändern und Apify nutzen
+ * 4. Bei 403/Forbidden oder leerem Ergebnis: Apify als Fallback
+ * 5. HTML zu Markdown konvertieren
+ * 6. KI-Agent extrahiert die gewünschten Informationen
  */
 export async function crawlWebsite(input: CrawlerInput): Promise<CrawlerOutput> {
   try {
-    // Step 1: Scrape mit Apify
-    let html = await scrapeWithApify(input.url);
+    // Step 1: 2 Sekunden warten (wie Wait Node in n8n)
+    console.log(`[Crawler] Starting crawl for: ${input.url}`);
+    await new Promise(resolve => setTimeout(resolve, 2000));
 
-    // Wenn HTML leer oder Fehler (403, Forbidden), versuche mit http statt https
-    if (!html || html.includes("403") || html.includes("Forbidden")) {
-      const httpUrl = input.url.replace("https", "http");
-      console.log(`Retrying with HTTP: ${httpUrl}`);
+    let html = "";
+    let usedMethod = "";
+
+    // Step 2: Versuche zuerst mit Puppeteer
+    const puppeteerResult = await scrapeWithPuppeteer(input.url);
+
+    if (puppeteerResult.error) {
+      // Step 3: Bei SSL-Fehler, versuche mit http und Apify
+      if (isSSLError(puppeteerResult.error)) {
+        console.log(`[Crawler] SSL error detected, trying with http via Apify...`);
+        const httpUrl = input.url.replace("https://", "http://");
+        html = await scrapeWithApify(httpUrl);
+        usedMethod = "apify (http fallback)";
+      } else {
+        // Anderer Fehler: Apify als Fallback
+        console.log(`[Crawler] Puppeteer failed, falling back to Apify...`);
+        html = await scrapeWithApify(input.url);
+        usedMethod = "apify (fallback)";
+      }
+    } else if (!puppeteerResult.body || isForbiddenResponse(puppeteerResult.body)) {
+      // Step 4: Bei 403/Forbidden oder leerem Ergebnis: Apify Fallback
+      console.log(`[Crawler] Puppeteer returned empty or forbidden, falling back to Apify...`);
+      html = await scrapeWithApify(input.url);
+      usedMethod = "apify (403 fallback)";
+    } else {
+      // Puppeteer war erfolgreich
+      html = puppeteerResult.body;
+      usedMethod = "puppeteer";
+    }
+
+    console.log(`[Crawler] Scraped via ${usedMethod}: ${html.length} chars`);
+
+    // Wenn Apify auch leer oder 403, versuche mit http
+    if ((!html || isForbiddenResponse(html)) && usedMethod.includes("apify") && !usedMethod.includes("http")) {
+      console.log(`[Crawler] Apify also failed, trying http...`);
+      const httpUrl = input.url.replace("https://", "http://");
       html = await scrapeWithApify(httpUrl);
+      usedMethod = "apify (http retry)";
     }
 
     if (!html) {
-      console.warn("No HTML content scraped");
+      console.warn("[Crawler] No HTML content scraped from any method");
       return { content: "" };
     }
 
-    // Step 2: HTML zu Markdown/Text konvertieren
+    // Step 5: HTML zu Markdown/Text konvertieren
     const markdown = htmlToText(html);
+    console.log(`[Crawler] Converted to ${markdown.length} chars markdown`);
 
-    // Step 3: Wenn "what" angegeben, KI-Agent nutzen um relevante Infos zu extrahieren
+    // Step 6: Wenn "what" angegeben, KI-Agent nutzen um relevante Infos zu extrahieren
     if (input.what && input.what.trim()) {
       const extracted = await extractWithAI(markdown, input.what);
       return { content: extracted };
@@ -178,7 +306,7 @@ export async function crawlWebsite(input: CrawlerInput): Promise<CrawlerOutput> 
     // Sonst einfach den konvertierten Text zurückgeben
     return { content: markdown.substring(0, 15000) };
   } catch (error) {
-    console.error("Crawler error:", error);
+    console.error("[Crawler] Error:", error);
     return { content: "" };
   }
 }
@@ -189,10 +317,21 @@ export async function crawlWebsite(input: CrawlerInput): Promise<CrawlerOutput> 
  */
 export async function crawlWebsiteRaw(url: string): Promise<string> {
   try {
+    console.log(`[Crawler] Raw crawl for: ${url}`);
+    
+    // Versuche zuerst Puppeteer
+    const puppeteerResult = await scrapeWithPuppeteer(url);
+    
+    if (puppeteerResult.body && !isForbiddenResponse(puppeteerResult.body)) {
+      return htmlToText(puppeteerResult.body);
+    }
+    
+    // Fallback zu Apify
+    console.log(`[Crawler] Raw crawl falling back to Apify...`);
     const html = await scrapeWithApify(url);
     return htmlToText(html);
   } catch (error) {
-    console.error("Raw crawler error:", error);
+    console.error("[Crawler] Raw crawler error:", error);
     return "";
   }
 }

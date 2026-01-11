@@ -17,6 +17,7 @@
   "dependencies": {
     "apify-client": "^2.21.0",
     "elysia": "^1.4.21",
-    "openai": "^6.16.0"
+    "openai": "^6.16.0",
+    "puppeteer-core": "^24.34.0"
   }
 }

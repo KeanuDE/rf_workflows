@@ -3,7 +3,6 @@ import type {
   WorkflowOutput,
   KeywordResult,
   KeywordData,
-  DataForSEOLocation,
 } from "../types";
 import {
   findLocation,
@@ -34,23 +33,23 @@ export async function runSEOKeywordWorkflow(
   const locationInfo = await findLocationAndGenre(input);
   console.log("Location info:", JSON.stringify(locationInfo, null, 2));
 
-  // Step 2: Find Location Code from DataForSEO
+  // Step 2: Find Location Code from DataForSEO SERP Locations
   console.log("\n[Step 2] Getting location code from DataForSEO...");
   let finalLocationCode = 2276; // Default: Germany
   
   try {
-    const locationResponse = await findLocation(locationInfo.fullLocation);
-    const locations = locationResponse.tasks?.[0]?.result || [];
-    console.log("Found", locations.length, "locations from DataForSEO");
-
-    // Filter locations that contain the found location name
-    const matchingLocations = locations.filter((loc: DataForSEOLocation) =>
-      loc.location_name.toLowerCase().includes(locationInfo.location.toLowerCase())
-    );
-
-    if (matchingLocations.length > 0 && matchingLocations[0]) {
-      finalLocationCode = matchingLocations[0].location_code;
-      console.log("Using location code:", finalLocationCode, "for", matchingLocations[0].location_name);
+    // Versuche zuerst mit dem vollen Location-Namen
+    let locationCode = await findLocation(locationInfo.fullLocation);
+    
+    // Falls nicht gefunden, versuche nur mit der Stadt
+    if (!locationCode) {
+      console.log(`[Step 2] Full location not found, trying with city only: "${locationInfo.location}"`);
+      locationCode = await findLocation(locationInfo.location);
+    }
+    
+    if (locationCode) {
+      finalLocationCode = locationCode;
+      console.log("Using location code:", finalLocationCode);
     } else {
       console.warn("No specific location found, using Germany default (2276)");
     }

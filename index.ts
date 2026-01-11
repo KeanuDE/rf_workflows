@@ -79,8 +79,7 @@ const app = new Elysia()
     try {
       // Test 1: Location lookup
       console.log("Testing DataForSEO location lookup...");
-      const locationResult = await findLocation("Berlin, Berlin");
-      const locationCode = locationResult.tasks?.[0]?.result?.[0]?.location_code;
+      const locationCode = await findLocation("Berlin, Berlin");
       
       // Test 2: Search volume
       console.log("Testing DataForSEO search volume...");
@@ -90,9 +89,8 @@ const app = new Elysia()
       return {
         success: true,
         location: {
-          found: locationResult.tasks?.[0]?.result?.length || 0,
+          searchTerm: "Berlin, Berlin",
           code: locationCode,
-          sample: locationResult.tasks?.[0]?.result?.[0],
         },
         searchVolume: {
           requested: testKeywords,

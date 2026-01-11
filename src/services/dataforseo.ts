@@ -1,4 +1,5 @@
 import type {
+  DataForSEOLocation,
   DataForSEOLocationResponse,
   DataForSEOSearchVolumeResponse,
   DataForSEOSERPResponse,
@@ -74,38 +75,92 @@ async function fetchDataForSEO<T>(
   }
 }
 
+// Cache für SERP Locations (wird einmal geladen und wiederverwendet)
+let serpLocationsCache: DataForSEOLocation[] | null = null;
+
 /**
- * Findet den Location Code für eine Stadt in Deutschland
- * Entspricht dem "find location" Node im n8n Workflow
- * 
- * n8n URL: https://api.dataforseo.com/v3/keywords_data/google_ads/locations/de?location_name=...
+ * Holt alle verfügbaren SERP Locations von DataForSEO
+ * GET https://api.dataforseo.com/v3/serp/google/locations
  */
-export async function findLocation(fullLocation: string): Promise<DataForSEOLocationResponse> {
-  console.log(`[DataForSEO] Finding location for: "${fullLocation}"`);
+async function getAllSERPLocations(): Promise<DataForSEOLocation[]> {
+  if (serpLocationsCache) {
+    console.log(`[DataForSEO] Using cached SERP locations (${serpLocationsCache.length} entries)`);
+    return serpLocationsCache;
+  }
+
+  console.log(`[DataForSEO] Fetching all SERP locations...`);
+  const endpoint = `/serp/google/locations`;
   
-  // Der Endpoint wie im n8n Workflow
-  const endpoint = `/keywords_data/google_ads/locations`;
+  const response = await fetchDataForSEO<{ tasks: Array<{ result: DataForSEOLocation[] }> }>(endpoint, "GET");
   
-  // Versuche mit country_code filter
-  const body = [
-    {
-      country_code: "DE",
-      location_name: fullLocation,
-    }
-  ];
+  const locations = response.tasks?.[0]?.result || [];
+  console.log(`[DataForSEO] Loaded ${locations.length} SERP locations`);
   
-  const result = await fetchDataForSEO<DataForSEOLocationResponse>(endpoint, "POST", body, true);
-  console.log(`[DataForSEO] Found ${result.tasks?.[0]?.result?.length || 0} locations`);
-  return result;
+  // Cache für spätere Verwendung
+  serpLocationsCache = locations;
+  
+  return locations;
 }
 
 /**
- * Holt alle deutschen Locations (für Fallback/Debugging)
+ * Findet den Location Code für eine Stadt
+ * Lädt alle Locations von /serp/google/locations und sucht nach dem passenden location_name
  */
-export async function getGermanLocations(): Promise<DataForSEOLocationResponse> {
-  const endpoint = `/keywords_data/google_ads/locations`;
-  const body = [{ country_code: "DE" }];
-  return fetchDataForSEO<DataForSEOLocationResponse>(endpoint, "POST", body, true);
+export async function findLocation(locationName: string): Promise<number | null> {
+  console.log(`[DataForSEO] Finding location code for: "${locationName}"`);
+  
+  const allLocations = await getAllSERPLocations();
+  
+  // Normalisiere den Suchbegriff
+  const searchTerm = locationName.toLowerCase().trim();
+  
+  // Suche nach exaktem Match zuerst
+  let match = allLocations.find(
+    (loc) => loc.location_name.toLowerCase() === searchTerm
+  );
+  
+  // Falls kein exakter Match, suche nach Teilübereinstimmung
+  if (!match) {
+    match = allLocations.find(
+      (loc) => loc.location_name.toLowerCase().includes(searchTerm)
+    );
+  }
+  
+  // Falls immer noch kein Match, suche ob der Suchbegriff im Location Name vorkommt
+  if (!match) {
+    match = allLocations.find(
+      (loc) => searchTerm.includes(loc.location_name.toLowerCase())
+    );
+  }
+  
+  if (match) {
+    console.log(`[DataForSEO] Found location: "${match.location_name}" (code: ${match.location_code})`);
+    return match.location_code;
+  }
+  
+  console.warn(`[DataForSEO] No location found for: "${locationName}"`);
+  return null;
+}
+
+/**
+ * Findet den Location Code für Deutschland
+ */
+export async function getGermanyLocationCode(): Promise<number> {
+  const allLocations = await getAllSERPLocations();
+  
+  const germany = allLocations.find(
+    (loc) => loc.location_name.toLowerCase() === "germany" || 
+             loc.location_name.toLowerCase() === "deutschland"
+  );
+  
+  if (germany) {
+    console.log(`[DataForSEO] Germany location code: ${germany.location_code}`);
+    return germany.location_code;
+  }
+  
+  // Fallback: bekannter Germany Code
+  console.warn(`[DataForSEO] Using fallback Germany location code: 2276`);
+  return 2276;
 }
 
 /**

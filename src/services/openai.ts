@@ -1,75 +1,111 @@
 import OpenAI from "openai";
 import type { LocationFinderOutput, WorkflowInput } from "../types";
 import { crawlWebsite } from "./crawler";
-import { getSERPResults } from "./dataforseo";
+import { getKeywordSearchVolume } from "./dataforseo";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
-  timeout: 120000, // Global timeout
+  timeout: 120000,
 });
 
-const MODEL = "gpt-5-mini";
+const MODEL = "gpt-4o-mini";
 
 /**
- * Tool Definition für Keyword-Validierung via DataForSEO SERP
- * Entspricht dem Tool-Workflow in n8n der /serp/google/organic/live/regular aufruft
+ * Tool Definition für Keyword Search Volume Check
+ * Nutzt /keywords_data/google_ads/search_volume/live
  */
-const keywordValidationTool: OpenAI.Chat.Completions.ChatCompletionTool = {
+const checkSearchVolumeTool: OpenAI.Chat.Completions.ChatCompletionTool = {
   type: "function",
   function: {
-    name: "check_keyword_serp",
-    description: "Prüft ein Keyword bei Google SERP um zu sehen wie gut es rankt und ob es relevant ist. Gibt die Top-Ergebnisse zurück.",
+    name: "check_search_volume",
+    description: "Prüft das monatliche Suchvolumen für ein oder mehrere Keywords bei Google. Gibt zurück wie oft pro Monat nach dem Keyword gesucht wird. Keywords mit höherem Suchvolumen sind wertvoller für SEO.",
     parameters: {
       type: "object",
       properties: {
-        keyword: {
-          type: "string",
-          description: "Das Keyword das geprüft werden soll",
+        keywords: {
+          type: "array",
+          items: { type: "string" },
+          description: "Liste von Keywords die geprüft werden sollen (max 10 pro Anfrage)",
         },
       },
-      required: ["keyword"],
+      required: ["keywords"],
     },
   },
 };
 
 /**
- * Führt das SERP-Tool aus
- * Entspricht dem HTTP Request Node im n8n Tool-Workflow
+ * Speicher für den Agent - merkt sich bereits geprüfte Keywords
  */
-async function executeKeywordTool(
-  keyword: string,
-  locationCode: number
+interface AgentMemory {
+  checkedKeywords: Map<string, number | null>; // keyword -> search_volume
+  goodKeywords: string[]; // Keywords mit Suchvolumen > 0
+  locationCode: number;
+}
+
+/**
+ * Führt das Search Volume Tool aus
+ * Nutzt /keywords_data/google_ads/search_volume/live
+ */
+async function executeSearchVolumeTool(
+  keywords: string[],
+  memory: AgentMemory
 ): Promise<string> {
   try {
-    console.log(`[OpenAI Tool] Checking SERP for keyword: "${keyword}"`);
+    // Filtere bereits geprüfte Keywords
+    const newKeywords = keywords.filter(kw => !memory.checkedKeywords.has(kw.toLowerCase()));
     
-    const serpResponse = await getSERPResults(keyword, locationCode);
-    const items = serpResponse.tasks?.[0]?.result?.[0]?.items || [];
+    if (newKeywords.length === 0) {
+      // Alle Keywords wurden bereits geprüft - gib gecachte Ergebnisse zurück
+      const cachedResults = keywords.map(kw => ({
+        keyword: kw,
+        search_volume: memory.checkedKeywords.get(kw.toLowerCase()) || 0,
+        cached: true,
+      }));
+      return JSON.stringify({
+        results: cachedResults,
+        message: "Alle Keywords waren bereits geprüft (aus Cache)",
+      });
+    }
+
+    console.log(`[Agent Tool] Checking search volume for ${newKeywords.length} new keywords...`);
     
-    // Formatiere die Ergebnisse für den Agent
-    const topResults = items.slice(0, 5).map((item, index) => ({
-      rank: index + 1,
-      url: item.url,
-      domain: item.domain || new URL(item.url).hostname,
-    }));
+    const results = await getKeywordSearchVolume(newKeywords, memory.locationCode);
     
-    const resultCount = items.length;
-    
-    return JSON.stringify({
-      keyword,
-      total_results: resultCount,
-      has_competition: resultCount > 0,
-      top_results: topResults,
-      recommendation: resultCount > 0 
-        ? "Keyword hat Suchergebnisse und ist relevant" 
-        : "Keyword hat keine Suchergebnisse",
-    });
+    // Speichere Ergebnisse im Memory
+    const formattedResults = [];
+    for (const result of results) {
+      const volume = result.search_volume || 0;
+      memory.checkedKeywords.set(result.keyword.toLowerCase(), volume);
+      
+      if (volume > 0) {
+        memory.goodKeywords.push(result.keyword);
+      }
+      
+      formattedResults.push({
+        keyword: result.keyword,
+        search_volume: volume,
+        competition: result.competition || "unknown",
+        cpc: result.cpc || 0,
+      });
+    }
+
+    // Sortiere nach Suchvolumen
+    formattedResults.sort((a, b) => (b.search_volume || 0) - (a.search_volume || 0));
+
+    const summary = {
+      checked: formattedResults.length,
+      with_volume: formattedResults.filter(r => r.search_volume > 0).length,
+      without_volume: formattedResults.filter(r => !r.search_volume || r.search_volume === 0).length,
+      results: formattedResults,
+      tip: "Keywords mit search_volume > 0 sind gut für SEO. Je höher das Volumen, desto besser.",
+    };
+
+    return JSON.stringify(summary);
   } catch (error) {
-    console.error(`[OpenAI Tool] Error checking keyword "${keyword}":`, error);
+    console.error(`[Agent Tool] Error checking search volume:`, error);
     return JSON.stringify({
-      keyword,
-      error: "Konnte Keyword nicht prüfen",
-      recommendation: "Keyword trotzdem verwenden",
+      error: "Fehler beim Abrufen des Suchvolumens",
+      message: error instanceof Error ? error.message : "Unknown error",
     });
   }
 }
@@ -79,18 +115,21 @@ async function executeKeywordTool(
  */
 async function processToolCalls(
   toolCalls: OpenAI.Chat.Completions.ChatCompletionMessageToolCall[],
-  locationCode: number
+  memory: AgentMemory
 ): Promise<OpenAI.Chat.Completions.ChatCompletionToolMessageParam[]> {
   const toolResults: OpenAI.Chat.Completions.ChatCompletionToolMessageParam[] = [];
   
   for (const toolCall of toolCalls) {
-    // Type guard für function tool calls
     if (toolCall.type === "function" && "function" in toolCall) {
       const functionCall = toolCall as OpenAI.Chat.Completions.ChatCompletionMessageFunctionToolCall;
       
-      if (functionCall.function.name === "check_keyword_serp") {
+      if (functionCall.function.name === "check_search_volume") {
         const args = JSON.parse(functionCall.function.arguments);
-        const result = await executeKeywordTool(args.keyword, locationCode);
+        const keywords = args.keywords || [];
+        
+        // Limitiere auf 10 Keywords pro Anfrage
+        const limitedKeywords = keywords.slice(0, 10);
+        const result = await executeSearchVolumeTool(limitedKeywords, memory);
         
         toolResults.push({
           role: "tool",
@@ -105,15 +144,22 @@ async function processToolCalls(
 }
 
 /**
- * Führt einen Agent mit Tool-Unterstützung aus
- * Iteriert bis der Agent keine Tools mehr aufruft
+ * Führt einen Agent mit Tool-Unterstützung und Memory aus
+ * Der Agent kann mehrere Iterationen durchlaufen und sich Ergebnisse merken
  */
-async function runAgentWithTools(
+async function runKeywordResearchAgent(
   systemPrompt: string,
   userPrompt: string,
   locationCode: number,
-  maxIterations: number = 10
+  maxIterations: number = 15
 ): Promise<string[]> {
+  // Initialisiere Agent Memory
+  const memory: AgentMemory = {
+    checkedKeywords: new Map(),
+    goodKeywords: [],
+    locationCode,
+  };
+
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     { role: "system", content: systemPrompt },
     { role: "user", content: userPrompt },
@@ -123,13 +169,13 @@ async function runAgentWithTools(
   
   while (iterations < maxIterations) {
     iterations++;
-    console.log(`[OpenAI Agent] Iteration ${iterations}...`);
+    console.log(`[Agent] Iteration ${iterations}/${maxIterations} - Memory: ${memory.checkedKeywords.size} checked, ${memory.goodKeywords.length} good keywords`);
     
     const response = await openai.chat.completions.create({
       model: MODEL,
       messages,
-      tools: [keywordValidationTool],
-      tool_choice: "auto",
+      tools: [checkSearchVolumeTool],
+      tool_choice: iterations < 3 ? "required" : "auto", // Erste 3 Iterationen: Tool muss genutzt werden
     });
 
     const assistantMessage = response.choices[0]?.message;
@@ -137,17 +183,16 @@ async function runAgentWithTools(
       throw new Error("No response from OpenAI");
     }
 
-    // Füge die Antwort zu den Messages hinzu
     messages.push(assistantMessage);
 
     // Wenn keine Tool-Calls, ist der Agent fertig
     if (!assistantMessage.tool_calls || assistantMessage.tool_calls.length === 0) {
-      console.log(`[OpenAI Agent] Completed after ${iterations} iterations`);
+      console.log(`[Agent] Completed after ${iterations} iterations`);
+      console.log(`[Agent] Final memory: ${memory.checkedKeywords.size} keywords checked, ${memory.goodKeywords.length} with volume`);
       
       // Parse das finale Ergebnis
       const content = assistantMessage.content || "[]";
       try {
-        // Versuche JSON zu parsen
         const parsed = JSON.parse(content);
         if (Array.isArray(parsed)) {
           return parsed;
@@ -157,41 +202,57 @@ async function runAgentWithTools(
         }
       } catch {
         // Versuche Array aus dem Text zu extrahieren
-        const arrayMatch = content.match(/\[[\s\S]*\]/);
+        const arrayMatch = content.match(/\[[\s\S]*?\]/);
         if (arrayMatch) {
           try {
             return JSON.parse(arrayMatch[0]);
           } catch {
-            console.warn("[OpenAI Agent] Could not parse array from response");
+            console.warn("[Agent] Could not parse array from response");
           }
         }
       }
+      
+      // Fallback: Gib die guten Keywords aus dem Memory zurück
+      if (memory.goodKeywords.length > 0) {
+        console.log(`[Agent] Using ${memory.goodKeywords.length} good keywords from memory`);
+        return memory.goodKeywords.slice(0, 20);
+      }
+      
       return [];
     }
 
     // Führe die Tools aus
-    console.log(`[OpenAI Agent] Executing ${assistantMessage.tool_calls.length} tool calls...`);
-    const toolResults = await processToolCalls(assistantMessage.tool_calls, locationCode);
-    
-    // Füge die Tool-Ergebnisse zu den Messages hinzu
+    console.log(`[Agent] Executing ${assistantMessage.tool_calls.length} tool calls...`);
+    const toolResults = await processToolCalls(assistantMessage.tool_calls, memory);
     messages.push(...toolResults);
+    
+    // Füge Memory-Status als Kontext hinzu nach jeder Tool-Nutzung
+    if (iterations % 3 === 0 && memory.goodKeywords.length > 0) {
+      messages.push({
+        role: "system",
+        content: `[Memory Update] Du hast bisher ${memory.checkedKeywords.size} Keywords geprüft. ${memory.goodKeywords.length} davon haben Suchvolumen: ${memory.goodKeywords.slice(0, 10).join(", ")}${memory.goodKeywords.length > 10 ? "..." : ""}`,
+      });
+    }
   }
 
-  console.warn(`[OpenAI Agent] Max iterations (${maxIterations}) reached`);
+  console.warn(`[Agent] Max iterations (${maxIterations}) reached`);
+  
+  // Gib die guten Keywords aus dem Memory zurück
+  if (memory.goodKeywords.length > 0) {
+    return memory.goodKeywords.slice(0, 20);
+  }
+  
   return [];
 }
 
 /**
  * Location-Finder Agent
  * Sucht auf der Website nach Branche und Standort
- * Entspricht dem "Location-Finder" Node im n8n Workflow
  */
 export async function findLocationAndGenre(
   input: WorkflowInput
 ): Promise<LocationFinderOutput> {
   const systemPrompt = `Suche auf der Website nach Branche und Standort. Gebe bei Location wirklich nur die Stadt an. Gebe bei fullLocation die Stadt mit Bundesland (auf Englisch) an.
-
-Du hast Zugriff auf ein Tool um Websites zu crawlen. Nutze es wenn nötig.
 
 Antworte IMMER im folgenden JSON Format:
 {
@@ -200,16 +261,12 @@ Antworte IMMER im folgenden JSON Format:
   "genre": "BRANCHE"
 }`;
 
-  const userPrompt = `URL:
-${input.website}
-Firmenbeschreibung:
-${input.company_purpose.description}`;
+  const userPrompt = `URL: ${input.website}
+Firmenbeschreibung: ${input.company_purpose.description}`;
 
-  // Erst versuchen ohne Crawling
   let websiteContent = "";
   
   try {
-    // Website crawlen für mehr Kontext
     const crawlResult = await crawlWebsite({
       url: input.website,
       what: "Standort, Adresse, Branche, Geschäftsbereich"
@@ -246,57 +303,86 @@ ${input.company_purpose.description}`;
 /**
  * Keyword Extractor Agent (by description)
  * Extrahiert Keywords aus der Firmenbeschreibung
- * MIT Tool-Unterstützung für SERP-Validierung
- * Entspricht dem "by description" Node im n8n Workflow
+ * MIT Tool für Search Volume Prüfung
  */
 export async function extractKeywordsFromDescription(
   description: string,
   locationCode: number
 ): Promise<string[]> {
-  const systemPrompt = `Du bist ein SEO-Spezialist.
+  const systemPrompt = `Du bist ein erfahrener SEO-Spezialist und Keyword-Researcher.
 
-Deine Aufgabe ist es aus dieser Beschreibung die wichtigsten Keywords rauszusuchen.
+DEINE AUFGABE:
+Extrahiere die wichtigsten SEO-Keywords aus der gegebenen Firmenbeschreibung.
 
-Nutz das mitgegebene Tool um zu validieren, wie gut das Keyword ist. Prüfe mindestens 5-10 Keywords bevor du deine finale Liste erstellst.
+WICHTIG - RECHERCHE-PROZESS:
+1. Lies die Beschreibung und identifiziere potenzielle Keywords
+2. NUTZE DAS TOOL "check_search_volume" um das Suchvolumen zu prüfen
+3. Prüfe verschiedene Variationen der Keywords (Singular/Plural, Synonyme)
+4. Merke dir welche Keywords gutes Suchvolumen haben (> 0)
+5. Recherchiere weiter bis du mindestens 10-15 Keywords mit Suchvolumen gefunden hast
+6. Wenn ein Keyword kein Volumen hat, probiere Alternativen
 
-Bitte gib deine Antwort als Array aus: ["Keyword1","Keyword2","Keyword3","Keyword4","Keyword5","Keyword6","Keyword7","Keyword8",...]
+REGELN:
+- NUR Keywords mit nachgewiesenem Suchvolumen in die finale Liste
+- Prüfe mindestens 20-30 verschiedene Keywords
+- Deutsche Keywords bevorzugen
+- Keine zu generischen Keywords (wie "Firma", "Service")
+- Keine zu spezifischen Long-Tail Keywords
 
-Maximal 20 Keywords. Nur Keywords die bei der SERP-Prüfung gute Ergebnisse hatten.`;
+AUSGABE:
+Wenn du genug recherchiert hast, gib deine finale Liste als JSON Array aus:
+["Keyword1", "Keyword2", "Keyword3", ...]
 
-  console.log(`[OpenAI] Extracting keywords from description (${description.length} chars)...`);
+Maximal 20 Keywords, alle mit nachgewiesenem Suchvolumen.`;
+
+  console.log(`[OpenAI] Starting keyword research agent for description (${description.length} chars)...`);
   
-  return runAgentWithTools(systemPrompt, description, locationCode);
+  return runKeywordResearchAgent(systemPrompt, description, locationCode);
 }
 
 /**
- * Keyword Extractor Agent (by company purpose)
+ * Keyword Extractor Agent (by company purpose/services)
  * Extrahiert Keywords aus den Services/USPs
- * MIT Tool-Unterstützung für SERP-Validierung
- * Entspricht dem "by company purpose" Node im n8n Workflow
+ * MIT Tool für Search Volume Prüfung
  */
 export async function extractKeywordsFromServices(
   services: string,
   locationCode: number
 ): Promise<string[]> {
-  const systemPrompt = `Du bist ein SEO-Spezialist.
+  const systemPrompt = `Du bist ein erfahrener SEO-Spezialist und Keyword-Researcher.
 
-Deine Aufgabe ist es aus den USPs der Firma die wichtigsten Keywords rauszusuchen.
+DEINE AUFGABE:
+Extrahiere die wichtigsten SEO-Keywords aus den Services und USPs der Firma.
 
-Nutz das mitgegebene Tool um zu validieren, wie gut das Keyword ist. Prüfe mindestens 5-10 Keywords bevor du deine finale Liste erstellst.
+WICHTIG - RECHERCHE-PROZESS:
+1. Analysiere die Services und identifiziere potenzielle Keywords
+2. NUTZE DAS TOOL "check_search_volume" um das Suchvolumen zu prüfen
+3. Prüfe verschiedene Variationen (z.B. "Webdesign", "Website erstellen", "Homepage")
+4. Merke dir welche Keywords gutes Suchvolumen haben (> 0)
+5. Recherchiere weiter bis du mindestens 10-15 Keywords mit Suchvolumen gefunden hast
+6. Wenn ein Keyword kein Volumen hat, probiere Synonyme oder verwandte Begriffe
 
-Bitte gib deine Antwort als Array aus: ["Keyword1","Keyword2","Keyword3","Keyword4","Keyword5","Keyword6","Keyword7","Keyword8",...]
+REGELN:
+- NUR Keywords mit nachgewiesenem Suchvolumen in die finale Liste
+- Prüfe mindestens 20-30 verschiedene Keywords
+- Deutsche Keywords bevorzugen
+- Fokus auf Service-bezogene Keywords
+- Keine zu generischen Keywords
 
-Maximal 20 Keywords. Nur Keywords die bei der SERP-Prüfung gute Ergebnisse hatten.`;
+AUSGABE:
+Wenn du genug recherchiert hast, gib deine finale Liste als JSON Array aus:
+["Keyword1", "Keyword2", "Keyword3", ...]
 
-  console.log(`[OpenAI] Extracting keywords from services (${services.length} chars)...`);
+Maximal 20 Keywords, alle mit nachgewiesenem Suchvolumen.`;
+
+  console.log(`[OpenAI] Starting keyword research agent for services (${services.length} chars)...`);
   
-  return runAgentWithTools(systemPrompt, services, locationCode);
+  return runKeywordResearchAgent(systemPrompt, services, locationCode);
 }
 
 /**
  * Keyword Searcher Agent
  * Generiert lokale SEO-Synonyme zu Keywords
- * Entspricht dem "Keyword searcher" Node im n8n Workflow
  */
 export async function generateLocalSEOKeywords(
   keywords: string[],
@@ -344,7 +430,6 @@ Gebe deine Antwort als JSON aus:
 /**
  * Keyword Validator Agent
  * Überprüft ob Keywords zur Branche passen
- * Entspricht dem "Keyword validator" Node im n8n Workflow
  */
 export async function validateKeywords(
   keywords: string[],

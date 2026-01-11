@@ -1,0 +1,1846 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -928,
+        176
+      ],
+      "id": "02f945c2-17f1-4214-8823-202b3f74e561",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-5-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-5-mini"
+        },
+        "builtInTools": {},
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        432,
+        144
+      ],
+      "id": "4aa93fd6-d704-44a7-bd47-b35aad2189e1",
+      "name": "OpenAI Chat Model",
+      "credentials": {
+        "openAiApi": {
+          "id": "K4brk9mMaVcNk03p",
+          "name": "RegionalFlat"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "[\"Keyword1\",\"Keyword2\",\"Keyword3\"]"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        608,
+        144
+      ],
+      "id": "3fc83090-15e8-4522-97b9-d5b00d463074",
+      "name": "Structured Output Parser"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "output",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        2128,
+        160
+      ],
+      "id": "82433dbd-609a-49d2-bb4b-d12a10f87b15",
+      "name": "Split Out"
+    },
+    {
+      "parameters": {
+        "description": "Call this tool to open a website and crawl it's content.",
+        "workflowId": {
+          "__rl": true,
+          "value": "y9tTFyoWdhYwpCb8",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/y9tTFyoWdhYwpCb8",
+          "cachedResultName": "Crawler Tool"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "url": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('url', ``, 'string') }}",
+            "what": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('what', ``, 'string') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "url",
+              "displayName": "url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "what",
+              "displayName": "what",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        -592,
+        400
+      ],
+      "id": "10983565-0dd5-4e3a-852a-1d3962648c77",
+      "name": "Call 'Crawler Tool'"
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "{\n  \"location\": \"LOCATION\",\n  \"fullLocation\": \"FULLLOCATION\",\n  \"genre\": \"GENRE\"\n}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        -448,
+        400
+      ],
+      "id": "3cc918ee-d7ed-4876-8b57-0b4694a51183",
+      "name": "Structured Output Parser1"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=URL:\n{{ $('When Executed by Another Workflow').item.json.website }}\nFirmenbeschreibung:\n{{ $('When Executed by Another Workflow').item.json.company_purpose.description }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "Suche auf der Website nach Branche und Standort. Gebe bei Location wirklich nur die Stadt an. Gebe bei fullLocation die Stadt mit Bundesland (auf Englisch) an."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [
+        -688,
+        176
+      ],
+      "id": "c3494f53-a5d3-4d61-a21c-ebd19342f417",
+      "name": "Location-Finder",
+      "retryOnFail": true
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "7ac0ac8b-bac0-4abb-87e3-258051aeb06e",
+              "name": "output",
+              "value": "={{ $('Aggregate').item.json.output }}",
+              "type": "array"
+            },
+            {
+              "id": "45bc2fb0-85a2-4129-b47c-c03a56ec3d47",
+              "name": "location",
+              "value": "={{ $('Limit1').item.json.location_code }}",
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1840,
+        160
+      ],
+      "id": "4d3ddc36-fe73-4eff-8c60-29c0ba2ea710",
+      "name": "Edit Fields1"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "e332205b-aaaa-4827-9b17-8321fef09d38",
+              "name": "output",
+              "value": "={{ $json.output }} {{ $('Location-Finder').item.json.output.location }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2352,
+        160
+      ],
+      "id": "47d04475-a154-416f-901e-a167acbac44f",
+      "name": "added location to keyword"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $('When Executed by Another Workflow').item.json.company_purpose.services }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "Du bist ein SEO-Spezialist.\n\nDeine Aufgabe ist es aus den USPs der Firma die wichtigsten Keywords rauszusuchen.\n\nNutz das mitgegebene Tool um zu validieren, wie gut das Keyword ist\n\n\nBitte gib deine Antwort als Array aus: [\"Keyword1\",\"Keyword2\",\"Keyword3\",\"Keyword4\",Keyword5\",\"Keyword6\",\"Keyword7\",\"Keyword8\",...]"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [
+        448,
+        400
+      ],
+      "id": "414f062a-850e-4d5b-92a0-ee1383663321",
+      "name": "by company purpose"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $('When Executed by Another Workflow').item.json.description }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "Du bist ein SEO-Spezialist.\n\nDeine Aufgabe ist es aus dieser Beschreibung die wichtigsten Keywords rauszusuchen.\n\nNutz das mitgegebene Tool um zu validieren, wie gut das Keyword ist\n\n\nBitte gib deine Antwort als Array aus: [\"Keyword1\",\"Keyword2\",\"Keyword3\",\"Keyword4\",Keyword5\",\"Keyword6\",\"Keyword7\",\"Keyword8\",...]"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [
+        448,
+        -80
+      ],
+      "id": "9a65e996-6dbd-4fcd-abb5-e71e7445a3bc",
+      "name": "by description"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1440,
+        160
+      ],
+      "id": "633f816c-2771-4f6f-ba31-2424a5d92655",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "output",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        800,
+        16
+      ],
+      "id": "34622063-be92-4dea-b9af-6a1075bd0af8",
+      "name": "Split Out1"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "output",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        800,
+        320
+      ],
+      "id": "d8e6320f-e76e-4782-a0ed-907e78eb5714",
+      "name": "Split Out2"
+    },
+    {
+      "parameters": {
+        "fieldsToAggregate": {
+          "fieldToAggregate": [
+            {
+              "fieldToAggregate": "output"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        1648,
+        160
+      ],
+      "id": "7962c0d1-2033-4a69-a6d0-30eabef2e5b8",
+      "name": "Aggregate"
+    },
+    {
+      "parameters": {
+        "fieldsToAggregate": {
+          "fieldToAggregate": [
+            {
+              "fieldToAggregate": "output"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        2560,
+        160
+      ],
+      "id": "16a1e0ef-469f-4abd-ad03-866e9c7adc5f",
+      "name": "Aggregate1"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-5-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-5-mini"
+        },
+        "builtInTools": {},
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        1648,
+        992
+      ],
+      "id": "a63cb315-ef66-455b-b4f2-e3ce3eeadc43",
+      "name": "OpenAI Chat Model1",
+      "credentials": {
+        "openAiApi": {
+          "id": "K4brk9mMaVcNk03p",
+          "name": "RegionalFlat"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "[\"Keyword1\",\"Keyword2\",\"Keyword3\"]"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        2624,
+        864
+      ],
+      "id": "7abf1f45-f050-4c4a-873d-32ceabb57e7d",
+      "name": "Structured Output Parser2"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "cf66d429-a486-4dad-bcde-922d4c5ffa71",
+              "name": "output",
+              "value": "={{ $json.output.concat($('Aggregate1').item.json.output) }}",
+              "type": "array"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2144,
+        544
+      ],
+      "id": "016eb410-6e7c-4e04-9559-c1bb47b9d39e",
+      "name": "combine"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.dataforseo.com/v3/keywords_data/google_ads/search_volume/live",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "=[\n  {\n    \"location_code\": \"{{$('Edit Fields1').item.json.location}}\",\n    \"language_code\": \"de\",\n    \"keywords\": [{{ $json.output.map(keyword => `\"${keyword}\"`).join(\", \") }}]\n  }\n]",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        3984,
+        672
+      ],
+      "id": "680fa6a6-9957-420b-8f05-a6d76104331b",
+      "name": "run task",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "lR0Fkl5EECABzVqT",
+          "name": "data4seo"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "amount": 3
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        3712,
+        880
+      ],
+      "id": "9cf559d9-1871-4c50-aa46-aa7d473081c0",
+      "name": "Wait",
+      "webhookId": "3fed1919-b3ee-4b03-bfbe-c348f1ecbcdc"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "output.output[0]",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        2928,
+        448
+      ],
+      "id": "402c3175-adec-4bfa-a982-1745571870b6",
+      "name": "Split Out3"
+    },
+    {
+      "parameters": {
+        "batchSize": 20,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        3520,
+        512
+      ],
+      "id": "981ba13f-9e26-4f6b-a7f0-a94185b7fb4c",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "tasks[0].result",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        3984,
+        880
+      ],
+      "id": "93a10bed-20c9-48fa-81cb-383c9a02d308",
+      "name": "results"
+    },
+    {
+      "parameters": {
+        "fieldsToAggregate": {
+          "fieldToAggregate": [
+            {
+              "fieldToAggregate": "output"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        3728,
+        672
+      ],
+      "id": "80668b66-fd57-48a2-ae84-ddcda015cb0b",
+      "name": "Aggregate2"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.output }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "=Aufgabe:\n Erzeuge zu jedem der folgenden Keywords eine Liste relevanter lokaler SEO-Synonyme.\nKontext & Ziel:\nBranche der Firma: {{ $('Location-Finder').item.json.output.genre }}\n\nFokus auf lokale Suchanfragen in Deutschland\nNutzerintention: Dienstleistung / Anbieter vor Ort finden\nRegeln:\n- Verwende ausschließlich deutsche Begriffe\n- Synonyme müssen inhaltlich gleichwertig sein\n- Kombiniere Leistungs-, Anbieter- und Orts-Varianten\n- Berücksichtige typische lokale Suchmuster wie:\n„in der Nähe”, „vor Ort”, „in [Ort]“, „regional”, „lokal”\nBerufs- und Dienstleisterbezeichnungen\n- Keine Wiederholungen\n- Keine Erklärungen oder Kommentare\n- Es sollen einzelene Keywords in der Array sein.\n\nNutz das mitgegebene Tool um zu validieren, wie gut das Keyword ist\n\nGebe deine Antwort als Array aus:\n[\"Keyword1\",\"Keyword2\",\"Keyword3\",...]"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [
+        1856,
+        544
+      ],
+      "id": "264caddc-4335-4321-8da6-2750497be8f1",
+      "name": "Keyword searcher"
+    },
+    {
+      "parameters": {
+        "sortFieldsUi": {
+          "sortField": [
+            {
+              "fieldName": "search_volume",
+              "order": "descending"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.sort",
+      "typeVersion": 1,
+      "position": [
+        3984,
+        464
+      ],
+      "id": "fcdf9722-daf4-4b68-8885-5a27d8d08388",
+      "name": "Sort"
+    },
+    {
+      "parameters": {
+        "url": "=https://api.dataforseo.com/v3/keywords_data/google_ads/locations/de?location_name={{ $json.output.fullLocation }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -384,
+        176
+      ],
+      "id": "17bf8bd6-3a7d-4171-ac9b-bd0bd5565bad",
+      "name": "find location",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "lR0Fkl5EECABzVqT",
+          "name": "data4seo"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "tasks[0].result",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        -224,
+        176
+      ],
+      "id": "47412db0-15e3-43fd-bbe5-25df04086410",
+      "name": "Split Out5"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "5a4841e4-1d9e-4f0d-b94f-cfda7f28c5f8",
+              "leftValue": "={{ $json.location_name }}",
+              "rightValue": "={{ $('Location-Finder').item.json.output.location }}",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.3,
+      "position": [
+        -16,
+        176
+      ],
+      "id": "6032c83e-1d13-4951-81aa-251475a31737",
+      "name": "Filter"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        192,
+        176
+      ],
+      "id": "07424789-8030-40cf-bb44-4997e8eb9457",
+      "name": "Limit1"
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "keywords",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        4192,
+        464
+      ],
+      "id": "1773c8a5-4ade-4580-889e-ea53e5d846e4",
+      "name": "aggregate keywords"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "keywords",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        4400,
+        464
+      ],
+      "id": "9ac4b10a-8563-4e59-b6cb-da0ffc8aa715",
+      "name": "split out keywords"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        4736,
+        464
+      ],
+      "id": "513bbc63-ddd5-45d7-b989-1f4e18879716",
+      "name": "Loop Over Items1"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.dataforseo.com/v3/serp/google/organic/live/regular",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "=[\n    {\n        \"language_code\": \"de\",\n        \"location_code\": {{ $('Edit Fields1').item.json.location }},\n        \"keyword\": \"{{ $json.keyword }}\"\n    }\n]",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        4896,
+        624
+      ],
+      "id": "7827eaa1-ce5a-4b81-a691-249d34f71b1f",
+      "name": "HTTP Request",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "lR0Fkl5EECABzVqT",
+          "name": "data4seo"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ccee5a4f-02c1-49a9-af2d-821ac79e9267",
+              "name": "tasks[0].result[0].items",
+              "value": "={{ $json.tasks[0].result[0].items.map(item => ({domain: item.url, rank: item.rank_absolute })) }}",
+              "type": "array"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        5104,
+        624
+      ],
+      "id": "ef0ca89e-79a9-471b-9d5c-410b358451da",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "amount": 2
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        5312,
+        624
+      ],
+      "id": "f1910caa-2f31-48b6-ba42-58137ae891e3",
+      "name": "Wait2",
+      "webhookId": "b37e7865-2e6e-48f9-a39b-8a6edc33574b"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "362cccaa-9cf3-4875-b893-b24e788b4c76",
+              "name": "items",
+              "value": "={{ $json.tasks[0].result[0].items }}",
+              "type": "array"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        4896,
+        816
+      ],
+      "id": "338b6097-018e-48bb-a688-1570229d1477",
+      "name": "Edit Fields2"
+    },
+    {
+      "parameters": {
+        "fieldsToAggregate": {
+          "fieldToAggregate": [
+            {
+              "fieldToAggregate": "items"
+            }
+          ]
+        },
+        "options": {
+          "mergeLists": true
+        }
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        5104,
+        816
+      ],
+      "id": "070f1d57-40d1-47b0-9101-8ec53a809995",
+      "name": "get all urls1"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "items",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        5312,
+        816
+      ],
+      "id": "c1a27954-69ac-4e7e-885f-a6768886a02c",
+      "name": "split out urls1"
+    },
+    {
+      "parameters": {
+        "sortFieldsUi": {
+          "sortField": [
+            {
+              "fieldName": "rank"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.sort",
+      "typeVersion": 1,
+      "position": [
+        5104,
+        1008
+      ],
+      "id": "46ceb236-9bc3-4340-8cc0-9275a4fd4093",
+      "name": "Sort2"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "b0c90b5c-8046-41c0-ab07-a7feae65d6b0",
+              "leftValue": "={{ $json.domain }}",
+              "rightValue": "={{ $('When Executed by Another Workflow').item.json.website }}",
+              "operator": {
+                "type": "string",
+                "operation": "notContains"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.3,
+      "position": [
+        4896,
+        1008
+      ],
+      "id": "4d87c2c7-3acf-4644-a413-b144e92aeccf",
+      "name": "filter own url1"
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        5312,
+        1008
+      ],
+      "id": "6c94f097-d870-4df7-a3bf-360457ed2b5c",
+      "name": "top links aggregated1"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "743b0705-8a91-43ce-9ab7-19dd1c2149eb",
+              "name": "keyword",
+              "value": "={{ $('Loop Over Items1').item.json.keyword }}",
+              "type": "string"
+            },
+            {
+              "id": "ad5f340d-e457-41b2-ad90-b3f25659f9bd",
+              "name": "domains",
+              "value": "={{ $json.data }}",
+              "type": "array"
+            },
+            {
+              "id": "8c312229-caf1-4aea-a869-996a8e593da2",
+              "name": "search_volume",
+              "value": "={{ $('Loop Over Items1').item.json.search_volume }}",
+              "type": "number"
+            },
+            {
+              "id": "9ded043a-f633-4c2f-b996-4bcd50143db6",
+              "name": "monthly_searches",
+              "value": "={{ $('Loop Over Items1').item.json.monthly_searches }}",
+              "type": "array"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        5520,
+        1008
+      ],
+      "id": "5c02476a-68a3-4e05-9ea1-05113d6c4f98",
+      "name": "Edit Fields3"
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "keywords",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        5104,
+        464
+      ],
+      "id": "98912bdd-6df6-480e-99db-bb0fd250c46b",
+      "name": "Aggregate3"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "4901d947-fc86-4b7d-a4bd-0cd883475312",
+              "name": "keywords",
+              "value": "={{ $json.keywords }}",
+              "type": "array"
+            },
+            {
+              "id": "08801ee9-a0bf-4266-a3ab-9c9b472b69b8",
+              "name": "location",
+              "value": "={{ $('Location-Finder').item.json.output.location }}",
+              "type": "string"
+            },
+            {
+              "id": "2da03c97-0e85-4dcb-a33e-8db62908a515",
+              "name": "genre",
+              "value": "={{ $('Location-Finder').item.json.output.genre }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        5312,
+        464
+      ],
+      "id": "1b0d2682-f6df-4deb-b7d5-4dec9e9014a8",
+      "name": "output"
+    },
+    {
+      "parameters": {
+        "maxItems": 5
+      },
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        4560,
+        464
+      ],
+      "id": "d79f9990-fc32-4830-8e4e-a13977ff0bd0",
+      "name": "limit to top 10"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.output }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "=Aufgabe:\nÜberprüfe ob die Keywords die du bekommen hast zu dem Branche der Firma passen. Sollte es nicht der Fall sein entferne das Keyword aus der Liste und gebe dann die neue Liste mit den Keywords raus die Sinn machen.\nDie Liste soll am Ende nur Sachen haben die in die Niche reinpassen, nichts generalisiertes\n\nBranche der Firma: {{ $('Location-Finder').item.json.output.genre }}\nRegeln:\n- Verwende ausschließlich deutsche Begriffe\n- Die Keywords müssen Kontextmäßig zum Branche passen\n\nGebe deine Antwort als Array aus:\n[\"Keyword1\",\"Keyword2\",\"Keyword3\",...]"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [
+        2352,
+        544
+      ],
+      "id": "c8c0785e-1d2e-4f5d-b2d3-c7d9e5f10224",
+      "name": "Keyword validator"
+    },
+    {
+      "parameters": {
+        "description": "Call this tool to check the volume of a keyword.",
+        "workflowId": {
+          "__rl": true,
+          "value": "i5F2a9tZhCHTBq01",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/i5F2a9tZhCHTBq01",
+          "cachedResultName": "keywordtool"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "keyword": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('keyword', ``, 'string') }}",
+            "locationcode": "={{ $('Limit1').first().json.location_code }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "keyword",
+              "displayName": "keyword",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "locationcode",
+              "displayName": "locationcode",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        112,
+        1008
+      ],
+      "id": "ef559f28-ef89-4c49-936e-13e3cf919060",
+      "name": "Call 'keywordtool'"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "94dabd6d-e319-4b90-b1ed-4c16ed7b4bd6",
+              "leftValue": "={{ $json.output}}",
+              "rightValue": 2,
+              "operator": {
+                "type": "array",
+                "operation": "lengthLt",
+                "rightType": "number"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2704,
+        544
+      ],
+      "id": "966ab7f3-e351-4f3e-920e-578a0e49ab00",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "output",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        2944,
+        608
+      ],
+      "id": "04b63e48-63fa-45d2-896c-40abd1908c43",
+      "name": "Split Out4"
+    },
+    {
+      "parameters": {
+        "maxItems": 40
+      },
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        3216,
+        512
+      ],
+      "id": "879acc9e-f2a6-48a6-9ed6-e2a6d5afadc2",
+      "name": "Limit"
+    },
+    {
+      "parameters": {
+        "maxItems": 20
+      },
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        1008,
+        16
+      ],
+      "id": "3f908d6f-4689-4b5b-9dfc-d51fd5b1fa73",
+      "name": "Limit2"
+    },
+    {
+      "parameters": {
+        "maxItems": 20
+      },
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        1008,
+        320
+      ],
+      "id": "c4bd1a3a-9424-4ea1-93c5-1e43437182e5",
+      "name": "Limit3"
+    }
+  ],
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Location-Finder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "by description",
+            "type": "ai_languageModel",
+            "index": 0
+          },
+          {
+            "node": "by company purpose",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "by description",
+            "type": "ai_outputParser",
+            "index": 0
+          },
+          {
+            "node": "by company purpose",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out": {
+      "main": [
+        [
+          {
+            "node": "added location to keyword",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call 'Crawler Tool'": {
+      "ai_tool": [
+        [
+          {
+            "node": "Location-Finder",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser1": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Location-Finder",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Location-Finder": {
+      "main": [
+        [
+          {
+            "node": "find location",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields1": {
+      "main": [
+        [
+          {
+            "node": "Split Out",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "added location to keyword": {
+      "main": [
+        [
+          {
+            "node": "Aggregate1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "by company purpose": {
+      "main": [
+        [
+          {
+            "node": "Split Out2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "by description": {
+      "main": [
+        [
+          {
+            "node": "Split Out1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Aggregate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out1": {
+      "main": [
+        [
+          {
+            "node": "Limit2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out2": {
+      "main": [
+        [
+          {
+            "node": "Limit3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate1": {
+      "main": [
+        [
+          {
+            "node": "Keyword searcher",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Keyword searcher",
+            "type": "ai_languageModel",
+            "index": 0
+          },
+          {
+            "node": "Location-Finder",
+            "type": "ai_languageModel",
+            "index": 0
+          },
+          {
+            "node": "Keyword validator",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser2": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Keyword searcher",
+            "type": "ai_outputParser",
+            "index": 0
+          },
+          {
+            "node": "Keyword validator",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "combine": {
+      "main": [
+        [
+          {
+            "node": "Keyword validator",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "run task": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out3": {
+      "main": [
+        [
+          {
+            "node": "Limit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "Sort",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Aggregate2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "results": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate2": {
+      "main": [
+        [
+          {
+            "node": "run task",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Keyword searcher": {
+      "main": [
+        [
+          {
+            "node": "combine",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sort": {
+      "main": [
+        [
+          {
+            "node": "aggregate keywords",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "find location": {
+      "main": [
+        [
+          {
+            "node": "Split Out5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out5": {
+      "main": [
+        [
+          {
+            "node": "Filter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter": {
+      "main": [
+        [
+          {
+            "node": "Limit1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limit1": {
+      "main": [
+        [
+          {
+            "node": "by description",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "by company purpose",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "aggregate keywords": {
+      "main": [
+        [
+          {
+            "node": "split out keywords",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "split out keywords": {
+      "main": [
+        [
+          {
+            "node": "limit to top 10",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items1": {
+      "main": [
+        [
+          {
+            "node": "Aggregate3",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Wait2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait2": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields2": {
+      "main": [
+        [
+          {
+            "node": "get all urls1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get all urls1": {
+      "main": [
+        [
+          {
+            "node": "split out urls1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "split out urls1": {
+      "main": [
+        [
+          {
+            "node": "filter own url1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sort2": {
+      "main": [
+        [
+          {
+            "node": "top links aggregated1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "filter own url1": {
+      "main": [
+        [
+          {
+            "node": "Sort2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "top links aggregated1": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields3": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate3": {
+      "main": [
+        [
+          {
+            "node": "output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "limit to top 10": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Keyword validator": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call 'keywordtool'": {
+      "ai_tool": [
+        [
+          {
+            "node": "Keyword searcher",
+            "type": "ai_tool",
+            "index": 0
+          },
+          {
+            "node": "by company purpose",
+            "type": "ai_tool",
+            "index": 0
+          },
+          {
+            "node": "by description",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Split Out3",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Split Out4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out4": {
+      "main": [
+        [
+          {
+            "node": "Limit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limit": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limit2": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limit3": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {
+    "When Executed by Another Workflow": [
+      {
+        "id": "6a752d04-3762-4bce-9aa5-2a8246d36c95",
+        "onboarding_session_id": "cfd44186-dc86-4b7b-9778-8efd8cac75a6",
+        "company_name": "Sültemeyer Sanitär-Heizung-Service GmbH",
+        "industry": "handwerk",
+        "industry_subcategory": "Sanitär",
+        "custom_subcategory": "",
+        "location": "Waterloostr. 46, 32323 Minden",
+        "employee_count": "",
+        "website": "https://www.sueltemeyer.net/",
+        "description": "Sültemeyer Sanitär-Heizung-Service GmbH bietet individuelle Planung, Beratung und Installation im Bereich Sanitär und Heizung. Das Unternehmen fokussiert sich auf effiziente Heiztechnik, Badmodernisierung, Trinkwasserqualität und Lüftungstechnik, um Kunden maßgeschneiderte und energieeffiziente Lösungen zu bieten. Dabei werden sowohl private Haushalte als auch Unternehmen und öffentliche Auftraggeber bedient.",
+        "contact_salutation": "Herr",
+        "contact_first_name": "Ingo",
+        "contact_last_name": "Sültemeyer",
+        "contact_email": "sdfs@asd.com",
+        "contact_phone": null,
+        "facebook_profile": "",
+        "instagram_profile": "",
+        "linkedin_profile": "",
+        "youtube_profile": "",
+        "blog_url": "",
+        "created_at": "2026-01-09T13:34:40.569593+00:00",
+        "updated_at": "2026-01-09T13:34:40.569593+00:00",
+        "tiktok_profile": "",
+        "logo_url": "https://www.sueltemeyer.net/images/sueltemeyer/header-logo-small.png",
+        "logo_background_color": "#FFFFFF",
+        "primary_color": "#ffffff",
+        "secondary_color": "#081d57",
+        "accent_color": "",
+        "background_color": "#FFFFFF",
+        "text_color": "#000000",
+        "company_purpose": {
+          "services": [
+            {
+              "name": "Heizungstechnik",
+              "category": "Dienstleistung",
+              "description": "Effiziente Heiztechnik zur Energieeinsparung und Einhaltung der Bundes-Immissions-Schutzverordnung, individuell auf das Gebäude abgestimmt."
+            },
+            {
+              "name": "Badezimmer",
+              "category": "Dienstleistung",
+              "description": "Individuelle Beratung, Planung und fachgerechte Installation von Badezimmern samt Koordination aller Gewerke für optimale Umsetzung."
+            },
+            {
+              "name": "Trinkwasser",
+              "category": "Dienstleistung",
+              "description": "Beratung zur Erhaltung und Verbesserung der Trinkwasserqualität sowie Möglichkeiten zur Trinkwassernachbehandlung."
+            },
+            {
+              "name": "Lüftungstechnik",
+              "category": "Dienstleistung",
+              "description": "Beratung und Installation moderner Lüftungs- und Klimatechnik zur Schaffung eines gesunden und behaglichen Innenraumklimas."
+            }
+          ],
+          "description": "Sültemeyer Sanitär-Heizung-Service GmbH bietet individuelle Planung, Beratung und Installation im Bereich Sanitär und Heizung. Das Unternehmen fokussiert sich auf effiziente Heiztechnik, Badmodernisierung, Trinkwasserqualität und Lüftungstechnik, um Kunden maßgeschneiderte und energieeffiziente Lösungen zu bieten. Dabei werden sowohl private Haushalte als auch Unternehmen und öffentliche Auftraggeber bedient.",
+          "business_model": {
+            "type": "projektbasierte Abrechnung",
+            "description": "Das Unternehmen verdient primär durch individuelle Planung, Beratung und Ausführung von Projekten im Bereich Sanitär und Heizung, mit einem starken Fokus auf langfristige Kundenbindung und Kundenzufriedenheit."
+          }
+        },
+        "target_audience": [
+          "30-49 J. Erwachsene",
+          "50-64 J. Best-Ager"
+        ],
+        "usps": [
+          "Über 50 Jahre Erfahrung im Bereich Sanitär und Heizung",
+          "Individuelle Planung und maßgeschneiderte Lösungen",
+          "Hohe Qualifikation in Beratung, Montage und Kundendienst",
+          "Flexibilität und hoher Stammkundenanteil aus verschiedenen Branchen"
+        ],
+        "operating_region": "regional"
+      }
+    ],
+    "OpenAI Chat Model": [
+      {
+        "isArtificialRecoveredEventItem": true
+      }
+    ],
+    "Structured Output Parser": [
+      {
+        "isArtificialRecoveredEventItem": true
+      }
+    ],
+    "Structured Output Parser2": [
+      {
+        "isArtificialRecoveredEventItem": true
+      }
+    ],
+    "Call 'keywordtool'": [
+      {
+        "isArtificialRecoveredEventItem": true
+      }
+    ]
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "39e227fa545701e69a534124947949e890db21ec84fef4330e5b6be5928a8239"
+  }
+}

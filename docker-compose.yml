@@ -1,0 +1,21 @@
+services:
+  rf_workflows:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rf_workflows
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - DATAFORSEO_LOGIN=${DATAFORSEO_LOGIN}
+      - DATAFORSEO_PASSWORD=${DATAFORSEO_PASSWORD}
+      - APIFY_API_TOKEN=${APIFY_API_TOKEN}
+    networks:
+      - regionalflat
+
+networks:
+  regionalflat:
+    external: true

@@ -141,7 +141,7 @@ export async function runSEOKeywordWorkflow(
 
   // Step 8: Get search volume for keywords (batched, max 40)
   const keywordsToCheck = validatedKeywords.slice(0, 40);
-  console.log("\n[Step 8] Getting search volume for", keywordsToCheck.length, "keywords...");
+  console.log("\n[Step 8] Getting search volume for", keywordsToCheck.length, "keywords (location:", finalLocationCode, ")...");
 
   let keywordDataList: KeywordData[] = [];
   try {
@@ -151,6 +151,13 @@ export async function runSEOKeywordWorkflow(
       20
     );
     console.log("Received search volume data for", keywordDataList.length, "keywords");
+    
+    // Debug: Zeige welche Keywords Suchvolumen haben
+    const withVolume = keywordDataList.filter(k => k.search_volume && k.search_volume > 0);
+    console.log(`[Step 8] Keywords with volume > 0: ${withVolume.length}`);
+    if (withVolume.length > 0) {
+      console.log(`[Step 8] Sample:`, withVolume.slice(0, 3).map(k => `${k.keyword}: ${k.search_volume}`));
+    }
   } catch (error) {
     console.error("Error getting search volume:", error);
   }

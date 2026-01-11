@@ -95,29 +95,59 @@ export async function findLocation(fullLocation: string, city: string): Promise<
     
     console.log(`[DataForSEO] Found ${locations.length} locations`);
     
+    // Debug: Zeige alle gefundenen Locations
+    if (locations.length > 0) {
+      console.log(`[DataForSEO] Available locations:`, locations.slice(0, 5).map(l => `${l.location_name} (${l.location_code})`));
+    }
+    
     if (locations.length === 0) {
       console.warn(`[DataForSEO] No locations found for: "${fullLocation}"`);
       return null;
     }
     
-    // Filter nach Stadt wie im n8n Workflow: location_name contains city
-    const cityLower = city.toLowerCase();
-    const matchingLocations = locations.filter((loc: DataForSEOLocation) =>
-      loc.location_name.toLowerCase().includes(cityLower)
-    );
+    const cityLower = city.toLowerCase().trim();
+    
+    // 1. Versuche exakten Match: location_name beginnt mit "City," (z.B. "Minden,")
+    let matchingLocations = locations.filter((loc: DataForSEOLocation) => {
+      const locName = loc.location_name.toLowerCase();
+      // Location muss mit "city," beginnen (z.B. "minden,north rhine-westphalia,germany")
+      return locName.startsWith(cityLower + ",");
+    });
+    
+    console.log(`[DataForSEO] Exact matches for "${city}":`, matchingLocations.length);
+    
+    // 2. Falls kein exakter Match, suche nach "City" als eigenständiges Wort am Anfang
+    if (matchingLocations.length === 0) {
+      matchingLocations = locations.filter((loc: DataForSEOLocation) => {
+        const locName = loc.location_name.toLowerCase();
+        // Muss mit dem Stadtnamen beginnen, gefolgt von Komma oder Leerzeichen
+        return locName.startsWith(cityLower) && 
+               (locName[cityLower.length] === "," || locName[cityLower.length] === " ");
+      });
+      console.log(`[DataForSEO] Word-boundary matches for "${city}":`, matchingLocations.length);
+    }
     
     if (matchingLocations.length > 0 && matchingLocations[0]) {
       const match = matchingLocations[0];
-      console.log(`[DataForSEO] Found location: "${match.location_name}" (code: ${match.location_code})`);
+      console.log(`[DataForSEO] ✓ Using location: "${match.location_name}" (code: ${match.location_code})`);
       return match.location_code;
     }
     
-    // Fallback: Nimm den ersten Treffer
+    // 3. Fallback: Nimm den ersten Treffer nur wenn er mit fullLocation übereinstimmt
     if (locations[0]) {
-      console.log(`[DataForSEO] Using first result: "${locations[0].location_name}" (code: ${locations[0].location_code})`);
-      return locations[0].location_code;
+      const firstLoc = locations[0].location_name.toLowerCase();
+      const fullLower = fullLocation.toLowerCase();
+      
+      // Prüfe ob die erste Location wirklich zur Suche passt
+      if (firstLoc.includes(cityLower + ",") || firstLoc.startsWith(cityLower)) {
+        console.log(`[DataForSEO] Using first result: "${locations[0].location_name}" (code: ${locations[0].location_code})`);
+        return locations[0].location_code;
+      } else {
+        console.warn(`[DataForSEO] First result "${locations[0].location_name}" doesn't match city "${city}" - skipping`);
+      }
     }
     
+    console.warn(`[DataForSEO] No matching location found for city: "${city}"`);
     return null;
   } catch (error) {
     console.error(`[DataForSEO] Error finding location:`, error);
@@ -142,26 +172,35 @@ export async function getKeywordSearchVolume(
   locationCode: number
 ): Promise<KeywordData[]> {
   console.log(`[DataForSEO] Getting search volume for ${keywords.length} keywords (location: ${locationCode})`);
+  console.log(`[DataForSEO] Keywords sample:`, keywords.slice(0, 3));
   
   const endpoint = "/keywords_data/google_ads/search_volume/live";
 
+  // Body EXAKT wie im n8n Workflow - location_code als String
   const body = [
     {
-      location_code: locationCode,
+      location_code: String(locationCode),
       language_code: "de",
       keywords: keywords,
     },
   ];
+
+  console.log(`[DataForSEO] Request body:`, JSON.stringify(body));
 
   const response = await fetchDataForSEO<DataForSEOSearchVolumeResponse>(endpoint, "POST", body, true);
 
   const results = response.tasks?.[0]?.result || [];
   console.log(`[DataForSEO] Received ${results.length} keyword results`);
   
-  // Log sample data
+  // Log mehr Details
   if (results.length > 0) {
-    const sample = results[0];
-    console.log(`[DataForSEO] Sample: "${sample?.keyword}" - volume: ${sample?.search_volume}`);
+    const withVolume = results.filter(r => r.search_volume && r.search_volume > 0);
+    console.log(`[DataForSEO] Keywords with volume > 0: ${withVolume.length}/${results.length}`);
+    
+    // Zeige die ersten paar Ergebnisse
+    results.slice(0, 5).forEach(r => {
+      console.log(`[DataForSEO]   - "${r.keyword}": volume=${r.search_volume}`);
+    });
   }
 
   return results;

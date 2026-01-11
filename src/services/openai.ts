@@ -284,9 +284,33 @@ export async function extractKeywordsFromDescription(
   description: string,
   locationCode: number
 ): Promise<string[]> {
-  const systemPrompt = `Du bist ein SEO-Spezialist.
+  const systemPrompt = `Du bist ein erfahrener SEO-Spezialist für lokale Unternehmen in Deutschland.
 
-Deine Aufgabe ist es aus dieser Beschreibung die wichtigsten Keywords rauszusuchen.
+DEINE AUFGABE:
+Extrahiere die wichtigsten SEO-Keywords aus der Firmenbeschreibung.
+
+WICHTIGE REGELN FÜR GUTE KEYWORDS:
+1. Kurze, prägnante Keywords (1-3 Wörter) - KEINE langen Phrasen
+2. Denke wie ein Kunde der nach dieser Dienstleistung sucht
+3. Verwende Branchen-typische Suchbegriffe wie:
+   - Berufsbezeichnungen: "Heizungsinstallateur", "Sanitärfachmann", "Klempner"
+   - Dienstleistungen: "Heizung", "Sanitär", "Badezimmer", "Badsanierung"
+   - Kombinationen: "Heizungsfirma", "Sanitärbetrieb", "Heizungsmonteur"
+4. KEINE Firmennamen oder Markennamen
+5. KEINE zu spezifischen Fachbegriffe die Kunden nicht suchen würden
+6. KEINE langen beschreibenden Phrasen wie "effiziente Heiztechnik zur Energieeinsparung"
+
+BEISPIELE FÜR GUTE KEYWORDS (Sanitär/Heizung Branche):
+- "Heizung"
+- "Sanitär" 
+- "Heizungsinstallateur"
+- "Badezimmer"
+- "Badsanierung"
+- "Heizungsfirma"
+- "Klempner"
+- "Heizungsmonteur"
+- "Gasheizung"
+- "Wärmepumpe"
 
 Nutz das mitgegebene Tool um zu validieren, wie gut das Keyword ist.
 
@@ -306,9 +330,29 @@ export async function extractKeywordsFromServices(
   services: string,
   locationCode: number
 ): Promise<string[]> {
-  const systemPrompt = `Du bist ein SEO-Spezialist.
+  const systemPrompt = `Du bist ein erfahrener SEO-Spezialist für lokale Unternehmen in Deutschland.
 
-Deine Aufgabe ist es aus den USPs der Firma die wichtigsten Keywords rauszusuchen.
+DEINE AUFGABE:
+Extrahiere die wichtigsten SEO-Keywords aus den Services/Dienstleistungen der Firma.
+
+WICHTIGE REGELN FÜR GUTE KEYWORDS:
+1. Kurze, prägnante Keywords (1-3 Wörter) - KEINE langen Phrasen
+2. Denke wie ein Kunde der nach dieser Dienstleistung sucht
+3. Verwende Branchen-typische Suchbegriffe:
+   - Berufsbezeichnungen: "Heizungsinstallateur", "Sanitärfachmann", "Installateur"
+   - Dienstleistungen: "Heizung", "Sanitär", "Bad", "Lüftung"
+   - Produkte: "Wärmepumpe", "Gasheizung", "Fußbodenheizung"
+4. KEINE Firmennamen oder zu spezifische Fachbegriffe
+5. KEINE langen beschreibenden Phrasen
+
+BEISPIELE FÜR GUTE KEYWORDS:
+- "Heizungstechnik"
+- "Badezimmer"
+- "Trinkwasser"
+- "Lüftungsanlage"
+- "Heizungswartung"
+- "Sanitärinstallation"
+- "Badplanung"
 
 Nutz das mitgegebene Tool um zu validieren, wie gut das Keyword ist.
 
@@ -331,21 +375,27 @@ export async function generateLocalSEOKeywords(
 ): Promise<string[]> {
   const systemPrompt = `Aufgabe:
 Erzeuge zu jedem der folgenden Keywords eine Liste relevanter lokaler SEO-Synonyme.
+
 Kontext & Ziel:
 Branche der Firma: ${genre}
-
 Fokus auf lokale Suchanfragen in Deutschland
 Nutzerintention: Dienstleistung / Anbieter vor Ort finden
+
+WICHTIG - Keyword-Struktur:
+Die Keywords haben bereits einen Ortsnamen am Ende (z.B. "Heizung Minden").
+Generiere Variationen mit demselben Ort, z.B.:
+- "Heizung Minden" → "Heizungsinstallateur Minden", "Heizungsfirma Minden", "Heizungsmonteur Minden"
+- "Sanitär Minden" → "Sanitärinstallateur Minden", "Klempner Minden", "Sanitärbetrieb Minden"
+
 Regeln:
 - Verwende ausschließlich deutsche Begriffe
+- Kurze Keywords (2-3 Wörter inkl. Ort)
 - Synonyme müssen inhaltlich gleichwertig sein
-- Kombiniere Leistungs-, Anbieter- und Orts-Varianten
-- Berücksichtige typische lokale Suchmuster wie:
-„in der Nähe", „vor Ort", „in [Ort]", „regional", „lokal"
-Berufs- und Dienstleisterbezeichnungen
-- Keine Wiederholungen
-- Keine Erklärungen oder Kommentare
-- Es sollen einzelne Keywords in der Array sein.
+- Typische lokale Suchmuster verwenden
+- Berufs- und Dienstleisterbezeichnungen einbeziehen
+- KEINE langen Phrasen
+- KEINE Wiederholungen
+- KEINE Erklärungen
 
 Nutz das mitgegebene Tool um zu validieren, wie gut das Keyword ist.
 
@@ -366,13 +416,17 @@ export async function validateKeywords(
   genre: string
 ): Promise<string[]> {
   const systemPrompt = `Aufgabe:
-Überprüfe ob die Keywords die du bekommen hast zu der Branche der Firma passen. Sollte es nicht der Fall sein entferne das Keyword aus der Liste und gebe dann die neue Liste mit den Keywords raus die Sinn machen.
-Die Liste soll am Ende nur Sachen haben die in die Nische reinpassen, nichts generalisiertes
+Überprüfe ob die Keywords zu der Branche der Firma passen und entferne unpassende Keywords.
 
 Branche der Firma: ${genre}
+
 Regeln:
+- BEHALTE kurze, prägnante Keywords (1-3 Wörter + Ort)
+- ENTFERNE zu lange oder zu spezifische Keywords
+- ENTFERNE Keywords die nicht zur Branche passen
+- ENTFERNE doppelte oder sehr ähnliche Keywords
+- BEHALTE Berufsbezeichnungen und Dienstleistungsnamen
 - Verwende ausschließlich deutsche Begriffe
-- Die Keywords müssen Kontextmäßig zur Branche passen
 
 Gebe deine Antwort als JSON aus:
 {"keywords": ["Keyword1","Keyword2","Keyword3",...]}`;

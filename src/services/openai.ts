@@ -7,7 +7,7 @@ const openai = new OpenAI({
   timeout: 120000, // Global timeout
 });
 
-const MODEL = "gpt-4o-mini";
+const MODEL = "gpt-5-mini";
 
 /**
  * Location-Finder Agent

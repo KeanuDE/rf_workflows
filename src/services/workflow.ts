@@ -165,11 +165,19 @@ export async function runSEOKeywordWorkflow(
   let sortedKeywords: KeywordData[];
   
   if (keywordDataList.length > 0) {
+    // Filtere nur ungültige Einträge, behalte aber Keywords mit null/0 Suchvolumen
+    // (lokale Nischen-Keywords haben oft kein messbares Suchvolumen in Google Ads)
     sortedKeywords = keywordDataList
-      .filter((kw) => kw && kw.search_volume > 0)
+      .filter((kw) => kw && kw.keyword)
       .sort((a, b) => (b.search_volume || 0) - (a.search_volume || 0))
       .slice(0, 5);
     console.log("\n[Step 9] Top keywords by volume:", sortedKeywords.length);
+    
+    // Warnung wenn alle Keywords kein Suchvolumen haben
+    const keywordsWithVolume = sortedKeywords.filter(kw => kw.search_volume && kw.search_volume > 0);
+    if (keywordsWithVolume.length === 0 && sortedKeywords.length > 0) {
+      console.warn("[Step 9] Warning: No keywords have measurable search volume (common for local niche keywords)");
+    }
   } else {
     // Fallback: Erstelle KeywordData ohne Search Volume
     console.warn("No search volume data available, using keywords without volume data");

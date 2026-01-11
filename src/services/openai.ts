@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import type { LocationFinderOutput, WorkflowInput } from "../types";
 import { crawlWebsite } from "./crawler";
+import { getSERPResults } from "./dataforseo";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -8,6 +9,177 @@ const openai = new OpenAI({
 });
 
 const MODEL = "gpt-5-mini";
+
+/**
+ * Tool Definition für Keyword-Validierung via DataForSEO SERP
+ * Entspricht dem Tool-Workflow in n8n der /serp/google/organic/live/regular aufruft
+ */
+const keywordValidationTool: OpenAI.Chat.Completions.ChatCompletionTool = {
+  type: "function",
+  function: {
+    name: "check_keyword_serp",
+    description: "Prüft ein Keyword bei Google SERP um zu sehen wie gut es rankt und ob es relevant ist. Gibt die Top-Ergebnisse zurück.",
+    parameters: {
+      type: "object",
+      properties: {
+        keyword: {
+          type: "string",
+          description: "Das Keyword das geprüft werden soll",
+        },
+      },
+      required: ["keyword"],
+    },
+  },
+};
+
+/**
+ * Führt das SERP-Tool aus
+ * Entspricht dem HTTP Request Node im n8n Tool-Workflow
+ */
+async function executeKeywordTool(
+  keyword: string,
+  locationCode: number
+): Promise<string> {
+  try {
+    console.log(`[OpenAI Tool] Checking SERP for keyword: "${keyword}"`);
+    
+    const serpResponse = await getSERPResults(keyword, locationCode);
+    const items = serpResponse.tasks?.[0]?.result?.[0]?.items || [];
+    
+    // Formatiere die Ergebnisse für den Agent
+    const topResults = items.slice(0, 5).map((item, index) => ({
+      rank: index + 1,
+      url: item.url,
+      domain: item.domain || new URL(item.url).hostname,
+    }));
+    
+    const resultCount = items.length;
+    
+    return JSON.stringify({
+      keyword,
+      total_results: resultCount,
+      has_competition: resultCount > 0,
+      top_results: topResults,
+      recommendation: resultCount > 0 
+        ? "Keyword hat Suchergebnisse und ist relevant" 
+        : "Keyword hat keine Suchergebnisse",
+    });
+  } catch (error) {
+    console.error(`[OpenAI Tool] Error checking keyword "${keyword}":`, error);
+    return JSON.stringify({
+      keyword,
+      error: "Konnte Keyword nicht prüfen",
+      recommendation: "Keyword trotzdem verwenden",
+    });
+  }
+}
+
+/**
+ * Verarbeitet Tool-Calls vom Agent
+ */
+async function processToolCalls(
+  toolCalls: OpenAI.Chat.Completions.ChatCompletionMessageToolCall[],
+  locationCode: number
+): Promise<OpenAI.Chat.Completions.ChatCompletionToolMessageParam[]> {
+  const toolResults: OpenAI.Chat.Completions.ChatCompletionToolMessageParam[] = [];
+  
+  for (const toolCall of toolCalls) {
+    // Type guard für function tool calls
+    if (toolCall.type === "function" && "function" in toolCall) {
+      const functionCall = toolCall as OpenAI.Chat.Completions.ChatCompletionMessageFunctionToolCall;
+      
+      if (functionCall.function.name === "check_keyword_serp") {
+        const args = JSON.parse(functionCall.function.arguments);
+        const result = await executeKeywordTool(args.keyword, locationCode);
+        
+        toolResults.push({
+          role: "tool",
+          tool_call_id: toolCall.id,
+          content: result,
+        });
+      }
+    }
+  }
+  
+  return toolResults;
+}
+
+/**
+ * Führt einen Agent mit Tool-Unterstützung aus
+ * Iteriert bis der Agent keine Tools mehr aufruft
+ */
+async function runAgentWithTools(
+  systemPrompt: string,
+  userPrompt: string,
+  locationCode: number,
+  maxIterations: number = 10
+): Promise<string[]> {
+  const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+    { role: "system", content: systemPrompt },
+    { role: "user", content: userPrompt },
+  ];
+
+  let iterations = 0;
+  
+  while (iterations < maxIterations) {
+    iterations++;
+    console.log(`[OpenAI Agent] Iteration ${iterations}...`);
+    
+    const response = await openai.chat.completions.create({
+      model: MODEL,
+      messages,
+      tools: [keywordValidationTool],
+      tool_choice: "auto",
+    });
+
+    const assistantMessage = response.choices[0]?.message;
+    if (!assistantMessage) {
+      throw new Error("No response from OpenAI");
+    }
+
+    // Füge die Antwort zu den Messages hinzu
+    messages.push(assistantMessage);
+
+    // Wenn keine Tool-Calls, ist der Agent fertig
+    if (!assistantMessage.tool_calls || assistantMessage.tool_calls.length === 0) {
+      console.log(`[OpenAI Agent] Completed after ${iterations} iterations`);
+      
+      // Parse das finale Ergebnis
+      const content = assistantMessage.content || "[]";
+      try {
+        // Versuche JSON zu parsen
+        const parsed = JSON.parse(content);
+        if (Array.isArray(parsed)) {
+          return parsed;
+        }
+        if (parsed.keywords && Array.isArray(parsed.keywords)) {
+          return parsed.keywords;
+        }
+      } catch {
+        // Versuche Array aus dem Text zu extrahieren
+        const arrayMatch = content.match(/\[[\s\S]*\]/);
+        if (arrayMatch) {
+          try {
+            return JSON.parse(arrayMatch[0]);
+          } catch {
+            console.warn("[OpenAI Agent] Could not parse array from response");
+          }
+        }
+      }
+      return [];
+    }
+
+    // Führe die Tools aus
+    console.log(`[OpenAI Agent] Executing ${assistantMessage.tool_calls.length} tool calls...`);
+    const toolResults = await processToolCalls(assistantMessage.tool_calls, locationCode);
+    
+    // Füge die Tool-Ergebnisse zu den Messages hinzu
+    messages.push(...toolResults);
+  }
+
+  console.warn(`[OpenAI Agent] Max iterations (${maxIterations}) reached`);
+  return [];
+}
 
 /**
  * Location-Finder Agent
@@ -74,71 +246,51 @@ ${input.company_purpose.description}`;
 /**
  * Keyword Extractor Agent (by description)
  * Extrahiert Keywords aus der Firmenbeschreibung
+ * MIT Tool-Unterstützung für SERP-Validierung
  * Entspricht dem "by description" Node im n8n Workflow
  */
 export async function extractKeywordsFromDescription(
   description: string,
-  _locationCode: number
+  locationCode: number
 ): Promise<string[]> {
   const systemPrompt = `Du bist ein SEO-Spezialist.
 
 Deine Aufgabe ist es aus dieser Beschreibung die wichtigsten Keywords rauszusuchen.
 
-Bitte gib deine Antwort als JSON Array aus: {"keywords": ["Keyword1","Keyword2","Keyword3","Keyword4","Keyword5","Keyword6","Keyword7","Keyword8",...]}
+Nutz das mitgegebene Tool um zu validieren, wie gut das Keyword ist. Prüfe mindestens 5-10 Keywords bevor du deine finale Liste erstellst.
 
-Maximal 20 Keywords.`;
+Bitte gib deine Antwort als Array aus: ["Keyword1","Keyword2","Keyword3","Keyword4","Keyword5","Keyword6","Keyword7","Keyword8",...]
 
-  const response = await openai.chat.completions.create({
-    model: MODEL,
-    messages: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: description },
-    ],
-    response_format: { type: "json_object" },
-  });
+Maximal 20 Keywords. Nur Keywords die bei der SERP-Prüfung gute Ergebnisse hatten.`;
 
-  const content = response.choices[0]?.message?.content;
-  if (!content) {
-    throw new Error("No response from OpenAI");
-  }
-
-  const parsed = JSON.parse(content);
-  return parsed.keywords || [];
+  console.log(`[OpenAI] Extracting keywords from description (${description.length} chars)...`);
+  
+  return runAgentWithTools(systemPrompt, description, locationCode);
 }
 
 /**
  * Keyword Extractor Agent (by company purpose)
  * Extrahiert Keywords aus den Services/USPs
+ * MIT Tool-Unterstützung für SERP-Validierung
  * Entspricht dem "by company purpose" Node im n8n Workflow
  */
 export async function extractKeywordsFromServices(
   services: string,
-  _locationCode: number
+  locationCode: number
 ): Promise<string[]> {
   const systemPrompt = `Du bist ein SEO-Spezialist.
 
 Deine Aufgabe ist es aus den USPs der Firma die wichtigsten Keywords rauszusuchen.
 
-Bitte gib deine Antwort als JSON Array aus: {"keywords": ["Keyword1","Keyword2","Keyword3","Keyword4","Keyword5","Keyword6","Keyword7","Keyword8",...]}
+Nutz das mitgegebene Tool um zu validieren, wie gut das Keyword ist. Prüfe mindestens 5-10 Keywords bevor du deine finale Liste erstellst.
 
-Maximal 20 Keywords.`;
+Bitte gib deine Antwort als Array aus: ["Keyword1","Keyword2","Keyword3","Keyword4","Keyword5","Keyword6","Keyword7","Keyword8",...]
 
-  const response = await openai.chat.completions.create({
-    model: MODEL,
-    messages: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: services },
-    ],
-    response_format: { type: "json_object" },
-  });
+Maximal 20 Keywords. Nur Keywords die bei der SERP-Prüfung gute Ergebnisse hatten.`;
 
-  const content = response.choices[0]?.message?.content;
-  if (!content) {
-    throw new Error("No response from OpenAI");
-  }
-
-  const parsed = JSON.parse(content);
-  return parsed.keywords || [];
+  console.log(`[OpenAI] Extracting keywords from services (${services.length} chars)...`);
+  
+  return runAgentWithTools(systemPrompt, services, locationCode);
 }
 
 /**

@@ -33,19 +33,14 @@ export async function runSEOKeywordWorkflow(
   const locationInfo = await findLocationAndGenre(input);
   console.log("Location info:", JSON.stringify(locationInfo, null, 2));
 
-  // Step 2: Find Location Code from DataForSEO SERP Locations
+  // Step 2: Find Location Code from DataForSEO Google Ads Locations
+  // Entspricht dem "find location" Node im n8n Workflow
   console.log("\n[Step 2] Getting location code from DataForSEO...");
   let finalLocationCode = 2276; // Default: Germany
   
   try {
-    // Versuche zuerst mit dem vollen Location-Namen
-    let locationCode = await findLocation(locationInfo.fullLocation);
-    
-    // Falls nicht gefunden, versuche nur mit der Stadt
-    if (!locationCode) {
-      console.log(`[Step 2] Full location not found, trying with city only: "${locationInfo.location}"`);
-      locationCode = await findLocation(locationInfo.location);
-    }
+    // Suche mit fullLocation und filtere nach city (wie im n8n Workflow)
+    const locationCode = await findLocation(locationInfo.fullLocation, locationInfo.location);
     
     if (locationCode) {
       finalLocationCode = locationCode;
@@ -114,7 +109,8 @@ export async function runSEOKeywordWorkflow(
   try {
     localSEOKeywords = await generateLocalSEOKeywords(
       keywordsWithLocation,
-      locationInfo.genre
+      locationInfo.genre,
+      finalLocationCode
     );
     console.log("Generated", localSEOKeywords.length, "local SEO keywords");
   } catch (error) {

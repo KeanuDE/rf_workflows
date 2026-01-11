@@ -75,91 +75,61 @@ async function fetchDataForSEO<T>(
   }
 }
 
-// Cache für SERP Locations (wird einmal geladen und wiederverwendet)
-let serpLocationsCache: DataForSEOLocation[] | null = null;
-
 /**
- * Holt alle verfügbaren SERP Locations von DataForSEO
- * GET https://api.dataforseo.com/v3/serp/google/locations
+ * Findet den Location Code für eine Stadt über Google Ads Locations
+ * Entspricht dem "find location" Node im n8n Workflow
+ * 
+ * n8n URL: https://api.dataforseo.com/v3/keywords_data/google_ads/locations/de?location_name=Minden, North Rhine-Westphalia
  */
-async function getAllSERPLocations(): Promise<DataForSEOLocation[]> {
-  if (serpLocationsCache) {
-    console.log(`[DataForSEO] Using cached SERP locations (${serpLocationsCache.length} entries)`);
-    return serpLocationsCache;
-  }
-
-  console.log(`[DataForSEO] Fetching all SERP locations...`);
-  const endpoint = `/serp/google/locations`;
+export async function findLocation(fullLocation: string, city: string): Promise<number | null> {
+  console.log(`[DataForSEO] Finding location for: "${fullLocation}" (city: "${city}")`);
   
-  const response = await fetchDataForSEO<{ tasks: Array<{ result: DataForSEOLocation[] }> }>(endpoint, "GET");
+  // Der Endpoint EXAKT wie im n8n Workflow:
+  // /keywords_data/google_ads/locations/de?location_name=...
+  const encodedLocation = encodeURIComponent(fullLocation);
+  const endpoint = `/keywords_data/google_ads/locations/de?location_name=${encodedLocation}`;
   
-  const locations = response.tasks?.[0]?.result || [];
-  console.log(`[DataForSEO] Loaded ${locations.length} SERP locations`);
-  
-  // Cache für spätere Verwendung
-  serpLocationsCache = locations;
-  
-  return locations;
-}
-
-/**
- * Findet den Location Code für eine Stadt
- * Lädt alle Locations von /serp/google/locations und sucht nach dem passenden location_name
- */
-export async function findLocation(locationName: string): Promise<number | null> {
-  console.log(`[DataForSEO] Finding location code for: "${locationName}"`);
-  
-  const allLocations = await getAllSERPLocations();
-  
-  // Normalisiere den Suchbegriff
-  const searchTerm = locationName.toLowerCase().trim();
-  
-  // Suche nach exaktem Match zuerst
-  let match = allLocations.find(
-    (loc) => loc.location_name.toLowerCase() === searchTerm
-  );
-  
-  // Falls kein exakter Match, suche nach Teilübereinstimmung
-  if (!match) {
-    match = allLocations.find(
-      (loc) => loc.location_name.toLowerCase().includes(searchTerm)
+  try {
+    const response = await fetchDataForSEO<DataForSEOLocationResponse>(endpoint, "GET", undefined, true);
+    const locations = response.tasks?.[0]?.result || [];
+    
+    console.log(`[DataForSEO] Found ${locations.length} locations`);
+    
+    if (locations.length === 0) {
+      console.warn(`[DataForSEO] No locations found for: "${fullLocation}"`);
+      return null;
+    }
+    
+    // Filter nach Stadt wie im n8n Workflow: location_name contains city
+    const cityLower = city.toLowerCase();
+    const matchingLocations = locations.filter((loc: DataForSEOLocation) =>
+      loc.location_name.toLowerCase().includes(cityLower)
     );
+    
+    if (matchingLocations.length > 0 && matchingLocations[0]) {
+      const match = matchingLocations[0];
+      console.log(`[DataForSEO] Found location: "${match.location_name}" (code: ${match.location_code})`);
+      return match.location_code;
+    }
+    
+    // Fallback: Nimm den ersten Treffer
+    if (locations[0]) {
+      console.log(`[DataForSEO] Using first result: "${locations[0].location_name}" (code: ${locations[0].location_code})`);
+      return locations[0].location_code;
+    }
+    
+    return null;
+  } catch (error) {
+    console.error(`[DataForSEO] Error finding location:`, error);
+    return null;
   }
-  
-  // Falls immer noch kein Match, suche ob der Suchbegriff im Location Name vorkommt
-  if (!match) {
-    match = allLocations.find(
-      (loc) => searchTerm.includes(loc.location_name.toLowerCase())
-    );
-  }
-  
-  if (match) {
-    console.log(`[DataForSEO] Found location: "${match.location_name}" (code: ${match.location_code})`);
-    return match.location_code;
-  }
-  
-  console.warn(`[DataForSEO] No location found for: "${locationName}"`);
-  return null;
 }
 
 /**
  * Findet den Location Code für Deutschland
  */
 export async function getGermanyLocationCode(): Promise<number> {
-  const allLocations = await getAllSERPLocations();
-  
-  const germany = allLocations.find(
-    (loc) => loc.location_name.toLowerCase() === "germany" || 
-             loc.location_name.toLowerCase() === "deutschland"
-  );
-  
-  if (germany) {
-    console.log(`[DataForSEO] Germany location code: ${germany.location_code}`);
-    return germany.location_code;
-  }
-  
-  // Fallback: bekannter Germany Code
-  console.warn(`[DataForSEO] Using fallback Germany location code: 2276`);
+  // Germany location code ist immer 2276
   return 2276;
 }
 

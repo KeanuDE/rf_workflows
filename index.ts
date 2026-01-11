@@ -77,19 +77,20 @@ const app = new Elysia()
   // Debug endpoint to test DataForSEO
   .get("/debug/dataforseo", async () => {
     try {
-      // Test 1: Location lookup
+      // Test 1: Location lookup (wie im n8n Workflow)
       console.log("Testing DataForSEO location lookup...");
-      const locationCode = await findLocation("Berlin, Berlin");
+      const locationCode = await findLocation("Minden, North Rhine-Westphalia", "Minden");
       
       // Test 2: Search volume
       console.log("Testing DataForSEO search volume...");
-      const testKeywords = ["Liveband", "Hochzeitsband", "Partyband"];
+      const testKeywords = ["Heizung Minden", "Sanitär Minden", "Badezimmer Minden"];
       const volumeResult = await getKeywordSearchVolume(testKeywords, locationCode || 2276);
       
       return {
         success: true,
         location: {
-          searchTerm: "Berlin, Berlin",
+          searchTerm: "Minden, North Rhine-Westphalia",
+          city: "Minden",
           code: locationCode,
         },
         searchVolume: {

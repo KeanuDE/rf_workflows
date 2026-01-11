@@ -196,6 +196,121 @@ export async function runSEOKeywordWorkflow(
   console.log("\n[Step 10] Getting SERP results for top keywords...");
   const keywordResults: KeywordResult[] = [];
 
+  // Blacklist für Vergleichsportale, Aggregatoren und überregionale Seiten
+  const DOMAIN_BLACKLIST = [
+    // Vergleichsportale & Aggregatoren
+    "deine-heizungsmeister.de",
+    "heizungsfinder.de",
+    "heizung.de",
+    "sanitaer.org",
+    "wer-liefert-was.de",
+    "wlw.de",
+    "gelbeseiten.de",
+    "goyellow.de",
+    "11880.com",
+    "dasoertliche.de",
+    "meinestadt.de",
+    "branchenbuch.de",
+    "yelp.de",
+    "yelp.com",
+    "golocal.de",
+    "cylex.de",
+    "branchen-info.net",
+    "firmenwissen.de",
+    "northdata.de",
+    "unternehmensregister.de",
+    // Job-Portale
+    "indeed.com",
+    "indeed.de",
+    "stepstone.de",
+    "monster.de",
+    "xing.com",
+    "linkedin.com",
+    // Bewertungsportale
+    "trustpilot.com",
+    "trustpilot.de",
+    "kununu.com",
+    "provenexpert.com",
+    "ausgezeichnet.org",
+    // Allgemeine Portale
+    "wikipedia.org",
+    "facebook.com",
+    "instagram.com",
+    "youtube.com",
+    "twitter.com",
+    "pinterest.com",
+    // Handwerker-Vermittlung
+    "myhammer.de",
+    "check24.de",
+    "homebell.com",
+    "thermondo.de",
+    "heizungsdiscount24.de",
+    "ofenseite.com",
+    "heizsparer.de",
+    "energieheld.de",
+    "daa.de",
+    "baufoerderer.de",
+    "co2online.de",
+    "effizienzhaus-online.de",
+    // Baumarkt-Ketten
+    "obi.de",
+    "hornbach.de",
+    "bauhaus.info",
+    "hagebau.de",
+    "toom.de",
+    "globus-baumarkt.de",
+    // Überregionale Infoseiten
+    "heizung-online.de",
+    "bosy-online.de",
+    "sbz-online.de",
+    "ikz.de",
+    "haustec.de",
+  ];
+
+  /**
+   * Prüft ob eine URL zu einem Vergleichsportal oder einer überregionalen Seite gehört
+   */
+  function isBlacklistedDomain(url: string): boolean {
+    try {
+      const hostname = new URL(url).hostname.toLowerCase().replace(/^www\./, "");
+      return DOMAIN_BLACKLIST.some(blacklisted => 
+        hostname === blacklisted || hostname.endsWith("." + blacklisted)
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Prüft ob eine URL ein typisches Aggregator-Muster hat
+   * z.B. /heizung/minden oder /sanitaer/stadtname
+   */
+  function hasAggregatorPattern(url: string): boolean {
+    try {
+      const pathname = new URL(url).pathname.toLowerCase();
+      // Typische Muster: /dienstleistung/stadt oder /stadt/dienstleistung
+      const aggregatorPatterns = [
+        /\/heizung\/[a-z-]+\/?$/,
+        /\/sanitaer\/[a-z-]+\/?$/,
+        /\/sanitär\/[a-z-]+\/?$/,
+        /\/klempner\/[a-z-]+\/?$/,
+        /\/installateur\/[a-z-]+\/?$/,
+        /\/handwerker\/[a-z-]+\/?$/,
+        /\/dienstleister\/[a-z-]+\/?$/,
+        /\/firmen\/[a-z-]+\/?$/,
+        /\/branche\/[a-z-]+\/?$/,
+        /\/region\/[a-z-]+\/?$/,
+        /\/stadt\/[a-z-]+\/?$/,
+        /\/[a-z-]+\/heizung\/?$/,
+        /\/[a-z-]+\/sanitaer\/?$/,
+        /\/[a-z-]+\/sanitär\/?$/,
+      ];
+      return aggregatorPatterns.some(pattern => pattern.test(pathname));
+    } catch {
+      return false;
+    }
+  }
+
   for (const keywordData of sortedKeywords) {
     console.log(`  Processing: "${keywordData.keyword}"`);
     
@@ -208,15 +323,41 @@ export async function runSEOKeywordWorkflow(
       const serpItems = serpResponse.tasks?.[0]?.result?.[0]?.items || [];
       console.log(`    Found ${serpItems.length} SERP results`);
 
-      // Filter out own website and map to domain/rank structure
+      // Filter out:
+      // 1. Own website
+      // 2. Blacklisted domains (Vergleichsportale, Aggregatoren)
+      // 3. URLs with aggregator patterns
       const domains = serpItems
-        .filter((item) => !item.url?.includes(input.website))
+        .filter((item) => {
+          const url = item.url || "";
+          
+          // Eigene Website ausfiltern
+          if (url.includes(input.website)) {
+            return false;
+          }
+          
+          // Blacklisted Domains ausfiltern
+          if (isBlacklistedDomain(url)) {
+            console.log(`    [Filtered] Blacklisted: ${url}`);
+            return false;
+          }
+          
+          // Aggregator-Pattern ausfiltern
+          if (hasAggregatorPattern(url)) {
+            console.log(`    [Filtered] Aggregator pattern: ${url}`);
+            return false;
+          }
+          
+          return true;
+        })
         .map((item) => ({
           domain: item.url || item.domain || "",
           rank: item.rank_absolute,
         }))
         .filter((item) => item.domain !== "")
         .sort((a, b) => a.rank - b.rank);
+
+      console.log(`    After filtering: ${domains.length} regional competitors`);
 
       keywordResults.push({
         keyword: keywordData.keyword,

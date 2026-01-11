@@ -5,6 +5,10 @@ import type { WorkflowInput } from "./src/types";
 
 const port = process.env.PORT || 3000;
 
+// Helper für optionale Felder die auch null sein können
+const OptionalNullable = (schema: ReturnType<typeof t.String>) => 
+  t.Optional(t.Union([schema, t.Null()]));
+
 // Schema für einen einzelnen Workflow Input
 const WorkflowInputSchema = t.Object({
   id: t.String(),
@@ -12,31 +16,31 @@ const WorkflowInputSchema = t.Object({
   company_name: t.String(),
   industry: t.String(),
   industry_subcategory: t.String(),
-  custom_subcategory: t.Optional(t.String()),
+  custom_subcategory: OptionalNullable(t.String()),
   location: t.String(),
-  employee_count: t.Optional(t.String()),
+  employee_count: OptionalNullable(t.String()),
   website: t.String(),
   description: t.String(),
-  contact_salutation: t.Optional(t.String()),
-  contact_first_name: t.Optional(t.String()),
-  contact_last_name: t.Optional(t.String()),
-  contact_email: t.Optional(t.String()),
-  contact_phone: t.Optional(t.Union([t.String(), t.Null()])),
-  facebook_profile: t.Optional(t.String()),
-  instagram_profile: t.Optional(t.String()),
-  linkedin_profile: t.Optional(t.String()),
-  youtube_profile: t.Optional(t.String()),
-  blog_url: t.Optional(t.String()),
-  created_at: t.Optional(t.String()),
-  updated_at: t.Optional(t.String()),
-  tiktok_profile: t.Optional(t.String()),
-  logo_url: t.Optional(t.String()),
-  logo_background_color: t.Optional(t.String()),
-  primary_color: t.Optional(t.String()),
-  secondary_color: t.Optional(t.String()),
-  accent_color: t.Optional(t.String()),
-  background_color: t.Optional(t.String()),
-  text_color: t.Optional(t.String()),
+  contact_salutation: OptionalNullable(t.String()),
+  contact_first_name: OptionalNullable(t.String()),
+  contact_last_name: OptionalNullable(t.String()),
+  contact_email: OptionalNullable(t.String()),
+  contact_phone: OptionalNullable(t.String()),
+  facebook_profile: OptionalNullable(t.String()),
+  instagram_profile: OptionalNullable(t.String()),
+  linkedin_profile: OptionalNullable(t.String()),
+  youtube_profile: OptionalNullable(t.String()),
+  blog_url: OptionalNullable(t.String()),
+  created_at: OptionalNullable(t.String()),
+  updated_at: OptionalNullable(t.String()),
+  tiktok_profile: OptionalNullable(t.String()),
+  logo_url: OptionalNullable(t.String()),
+  logo_background_color: OptionalNullable(t.String()),
+  primary_color: OptionalNullable(t.String()),
+  secondary_color: OptionalNullable(t.String()),
+  accent_color: OptionalNullable(t.String()),
+  background_color: OptionalNullable(t.String()),
+  text_color: OptionalNullable(t.String()),
   company_purpose: t.Object({
     services: t.Array(
       t.Object({
@@ -51,9 +55,9 @@ const WorkflowInputSchema = t.Object({
       description: t.String(),
     }),
   }),
-  target_audience: t.Optional(t.Array(t.String())),
-  usps: t.Optional(t.Array(t.String())),
-  operating_region: t.Optional(t.String()),
+  target_audience: t.Optional(t.Union([t.Array(t.String()), t.Null()])),
+  usps: t.Optional(t.Union([t.Array(t.String()), t.Null()])),
+  operating_region: OptionalNullable(t.String()),
 });
 
 const app = new Elysia()

@@ -291,13 +291,6 @@ export async function runSEOKeywordWorkflow(
       const pathname = new URL(url).pathname.toLowerCase();
       // Typische Muster: /dienstleistung/stadt oder /stadt/dienstleistung
       const aggregatorPatterns = [
-        /\/heizung\/[a-z-]+\/?$/,
-        /\/sanitaer\/[a-z-]+\/?$/,
-        /\/sanitär\/[a-z-]+\/?$/,
-        /\/klempner\/[a-z-]+\/?$/,
-        /\/installateur\/[a-z-]+\/?$/,
-        /\/handwerker\/[a-z-]+\/?$/,
-        /\/dienstleister\/[a-z-]+\/?$/,
         /\/firmen\/[a-z-]+\/?$/,
         /\/branche\/[a-z-]+\/?$/,
         /\/region\/[a-z-]+\/?$/,

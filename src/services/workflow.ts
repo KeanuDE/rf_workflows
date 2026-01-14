@@ -39,19 +39,23 @@ export async function runSEOKeywordWorkflow(
   console.log("\n[Step 2] Getting location code from DataForSEO...");
   let finalLocationCode = 2276; // Default: Germany
   
-  try {
-    // Suche mit fullLocation und filtere nach city (wie im n8n Workflow)
-    const locationCode = await findLocation(locationInfo.fullLocation, locationInfo.location);
-    
-    if (locationCode) {
-      finalLocationCode = locationCode;
-      console.log("Using location code:", finalLocationCode);
-    } else {
-      console.warn("No specific location found, using Germany default (2276)");
+  if (input.operating_region === "regional") {
+    try {
+      // Suche mit fullLocation und filtere nach city (wie im n8n Workflow)
+      const locationCode = await findLocation(locationInfo.fullLocation, locationInfo.location);
+      
+      if (locationCode) {
+        finalLocationCode = locationCode;
+        console.log("Using location code:", finalLocationCode);
+      } else {
+        console.warn("No specific location found, using Germany default (2276)");
+      }
+    } catch (error) {
+      console.error("Error getting location code:", error);
+      console.warn("Using Germany default (2276)");
     }
-  } catch (error) {
-    console.error("Error getting location code:", error);
-    console.warn("Using Germany default (2276)");
+  } else {
+    console.log(`Operating region is '${input.operating_region || "undefined"}' (not 'regional'). Using Germany default (2276).`);
   }
 
   // Step 3: Extract keywords parallel (by description AND by company purpose)
@@ -95,27 +99,32 @@ export async function runSEOKeywordWorkflow(
     };
   }
 
-  // Add location to each keyword (like "added location to keyword" node)
-  const keywordsWithLocation = mergedKeywords.map(
-    (kw) => `${kw} ${locationInfo.location}`
-  );
+  // Add location to each keyword ONLY if regional
+  const isRegional = input.operating_region === "regional";
+  const keywordsWithLocation = isRegional
+    ? mergedKeywords.map((kw) => `${kw} ${locationInfo.location}`)
+    : mergedKeywords;
 
-  console.log("Keywords with location:", keywordsWithLocation.length);
+  console.log(`Keywords with location (regional=${isRegional}):`, keywordsWithLocation.length);
   console.log("Sample:", keywordsWithLocation.slice(0, 3));
 
   // Step 5: Generate local SEO synonyms (Keyword searcher)
   console.log("\n[Step 5] Generating local SEO synonyms...");
   let localSEOKeywords: string[] = [];
   
-  try {
-    localSEOKeywords = await generateLocalSEOKeywords(
-      keywordsWithLocation,
-      locationInfo.genre,
-      finalLocationCode
-    );
-    console.log("Generated", localSEOKeywords.length, "local SEO keywords");
-  } catch (error) {
-    console.error("Error generating local SEO keywords:", error);
+  if (isRegional) {
+    try {
+      localSEOKeywords = await generateLocalSEOKeywords(
+        keywordsWithLocation,
+        locationInfo.genre,
+        finalLocationCode
+      );
+      console.log("Generated", localSEOKeywords.length, "local SEO keywords");
+    } catch (error) {
+      console.error("Error generating local SEO keywords:", error);
+    }
+  } else {
+    console.log("Skipping local SEO synonyms generation (not regional)");
   }
 
   // Step 6: Combine all keywords

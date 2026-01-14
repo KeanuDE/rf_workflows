@@ -137,3 +137,8 @@ PORT=3000
 - `/debug/dataforseo` Endpoint für Location/Search Volume Tests
 - `console.log` mit `[Service]` Prefix für Tracing
 - `logResponse: true` in `fetchDataForSEO` für API-Debugging
+
+## OpenAI Models
+- normal Model: gpt-5-mini
+- small Model: gpt-4.1-nano
+- DONT USE gpt-4o!! IT'S DEPRECATED

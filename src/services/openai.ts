@@ -8,8 +8,8 @@ const openai = new OpenAI({
   timeout: 120000,
 });
 
-const MODEL = "gpt-4o-mini";
-
+const MODEL = "gpt-5-mini";
+const SMALL_MODEL = "gpt-4.1-nano"
 /**
  * Tool Definition für Keyword-Validierung via SERP
  * Entspricht dem "keywordtool" im n8n Workflow
@@ -468,7 +468,7 @@ export async function isSingleCompanyWebsite(url: string): Promise<boolean> {
     }
 
     const response = await openai.chat.completions.create({
-      model: MODEL,
+      model: SMALL_MODEL,
       messages: [
         {
           role: "system",

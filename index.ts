@@ -3,6 +3,7 @@ import { indexRoutes } from "./src/routes/index";
 import { healthRoutes } from "./src/routes/health";
 import { debugRoutes } from "./src/routes/debug";
 import { workflowRoutes } from "./src/routes/workflow";
+import { redaktionsplanRoutes } from "./src/routes/redaktionsplan";
 
 const port = process.env.PORT || 3000;
 
@@ -11,6 +12,7 @@ const app = new Elysia()
   .use(healthRoutes)
   .use(debugRoutes)
   .use(workflowRoutes)
+  .use(redaktionsplanRoutes)
   .listen(port);
 
 console.log(

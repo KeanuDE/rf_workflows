@@ -305,7 +305,11 @@ export async function runSEOKeywordWorkflow(
     }
   }
 
-  for (const keywordData of sortedKeywords) {
+  // Process all keywords in parallel for better performance
+  const keywordPromises = sortedKeywords.map(async (keywordData, index) => {
+    // Stagger requests by 500ms each to respect rate limits
+    await new Promise((resolve) => setTimeout(resolve, index * 500));
+    
     console.log(`  Processing: "${keywordData.keyword}"`);
     
     try {
@@ -359,26 +363,27 @@ export async function runSEOKeywordWorkflow(
 
       console.log(`    After AI validation: ${domains.length} regional competitors`);
 
-      keywordResults.push({
+      return {
         keyword: keywordData.keyword,
         search_volume: keywordData.search_volume || 0,
         monthly_searches: keywordData.monthly_searches || [],
         domains: domains,
-      });
-
-      // Rate limiting: 2 Sekunden Pause zwischen SERP Requests
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      };
     } catch (error) {
       console.error(`    Error getting SERP for ${keywordData.keyword}:`, error);
       // Still include keyword without SERP data
-      keywordResults.push({
+      return {
         keyword: keywordData.keyword,
         search_volume: keywordData.search_volume || 0,
         monthly_searches: keywordData.monthly_searches || [],
         domains: [],
-      });
+      };
     }
-  }
+  });
+
+  // Wait for all SERP analyses to complete
+  const results = await Promise.all(keywordPromises);
+  keywordResults.push(...results);
 
   // Final output
   const output: WorkflowOutput = {

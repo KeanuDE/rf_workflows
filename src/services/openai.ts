@@ -553,7 +553,7 @@ function isCompanyByHeuristics(url: string): boolean {
 }
 
 /**
- * Validiert mehrere Domains parallel
+ * Validiert mehrere Domains mit Batch-Parallelisierung
  * Gibt zurück welche Domains echte Unternehmen sind
  */
 export async function validateCompanyDomains(
@@ -565,19 +565,35 @@ export async function validateCompanyDomains(
     return [];
   }
 
+  // Process domains in batches of 3 for better performance while respecting rate limits
+  const BATCH_SIZE = 3;
   const validCompanies: Array<{ domain: string; rank: number }> = [];
 
-  for (const item of domains) {
-    const isCompany = await isSingleCompanyWebsite(item.domain);
+  for (let i = 0; i < domains.length; i += BATCH_SIZE) {
+    const batch = domains.slice(i, i + BATCH_SIZE);
     
-    if (isCompany) {
-      validCompanies.push(item);
-    } else {
-      console.log(`[CompanyValidator] Filtered out portal: ${item.domain}`);
-    }
+    // Process batch in parallel with staggered start times
+    const batchPromises = batch.map(async (item, index) => {
+      // Stagger by 400ms to avoid hitting rate limits
+      await new Promise(resolve => setTimeout(resolve, index * 400));
+      
+      const isCompany = await isSingleCompanyWebsite(item.domain);
+      
+      if (isCompany) {
+        return item;
+      } else {
+        console.log(`[CompanyValidator] Filtered out portal: ${item.domain}`);
+        return null;
+      }
+    });
 
-    // Rate limiting: 1s Pause zwischen Requests
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    const batchResults = await Promise.all(batchPromises);
+    validCompanies.push(...batchResults.filter((item): item is { domain: string; rank: number } => item !== null));
+
+    // Wait 1s between batches
+    if (i + BATCH_SIZE < domains.length) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
   }
 
   console.log(`[CompanyValidator] Validated: ${validCompanies.length}/${domains.length} are companies`);

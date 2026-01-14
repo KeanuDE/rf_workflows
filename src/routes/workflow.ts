@@ -64,28 +64,29 @@ export const workflowRoutes = new Elysia({ prefix: "/workflow" })
         
         console.log(`Starting workflow for ${inputs.length} company/companies`);
         
-        const results = [];
-        
-        for (const input of inputs) {
+        // Process all companies in parallel for better performance
+        const resultPromises = inputs.map(async (input) => {
           console.log(`Processing: ${input.company_name}`);
           try {
             const result = await runSEOKeywordWorkflow(input as WorkflowInput);
-            results.push({
+            return {
               success: true,
               company_name: input.company_name,
               id: input.id,
               data: result,
-            });
+            };
           } catch (error) {
             console.error(`Error for ${input.company_name}:`, error);
-            results.push({
+            return {
               success: false,
               company_name: input.company_name,
               id: input.id,
               error: error instanceof Error ? error.message : "Unknown error",
-            });
+            };
           }
-        }
+        });
+        
+        const results = await Promise.all(resultPromises);
         
         if (results.length === 1) {
           return results[0];

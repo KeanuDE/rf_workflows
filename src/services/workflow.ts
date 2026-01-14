@@ -15,6 +15,7 @@ import {
   extractKeywordsFromServices,
   generateLocalSEOKeywords,
   validateKeywords,
+  validateCompanyDomains,
 } from "./openai";
 
 /**
@@ -327,7 +328,7 @@ export async function runSEOKeywordWorkflow(
       // 1. Own website
       // 2. Blacklisted domains (Vergleichsportale, Aggregatoren)
       // 3. URLs with aggregator patterns
-      const domains = serpItems
+      const preliminaryDomains = serpItems
         .filter((item) => {
           const url = item.url || "";
           
@@ -357,7 +358,13 @@ export async function runSEOKeywordWorkflow(
         .filter((item) => item.domain !== "")
         .sort((a, b) => a.rank - b.rank);
 
-      console.log(`    After filtering: ${domains.length} regional competitors`);
+      console.log(`    After initial filtering: ${preliminaryDomains.length} domains`);
+
+      // Step 10b: AI-Validierung - Prüfe ob es echte Firmen sind oder Portale
+      console.log(`    Validating ${preliminaryDomains.length} domains with AI...`);
+      const domains = await validateCompanyDomains(preliminaryDomains);
+
+      console.log(`    After AI validation: ${domains.length} regional competitors`);
 
       keywordResults.push({
         keyword: keywordData.keyword,

@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import type { LocationFinderOutput, WorkflowInput } from "../types";
+import type { LocationFinderOutput, WorkflowInput, CrawlerInput, CrawlerOutput } from "../types";
 import { crawlWebsite } from "./crawler";
 import { getSERPResults } from "./dataforseo";
 
@@ -447,4 +447,139 @@ Gebe deine Antwort als JSON aus:
 
   const parsed = JSON.parse(content);
   return parsed.keywords || [];
+}
+
+/**
+ * Prüft ob eine URL eine einzelne Firma oder ein Branchenportal ist
+ * Nutzt KI um den Content zu analysieren
+ */
+export async function isSingleCompanyWebsite(url: string): Promise<boolean> {
+  console.log(`[CompanyValidator] Checking if "${url}" is a single company website...`);
+
+  try {
+    const crawlResult = await crawlWebsite({
+      url,
+      what: "Ist dies die Website eines einzelnen Unternehmens mit eigenem Angebot, oder ein Branchenportal/Verzeichnis mit vielen verschiedenen Firmen? Analysiere: 1) Gibt es ein Impressum mit einer einzelnen Firmenadresse? 2) Werden Dienstleistungen von nur einer Firma beschrieben? 3) Gibt es 'für Partner' oder 'für Unternehmen' Sektionen? 4) Gibt es eine klare 'Über uns' Seite mit Unternehmensgeschichte? Antworte mit JSON: {isSingleCompany: boolean, reason: string}"
+    });
+
+    if (!crawlResult.content || crawlResult.content.trim().length === 0) {
+      console.warn("[CompanyValidator] No content scraped, using fallback logic");
+      return isCompanyByHeuristics(url);
+    }
+
+    const response = await openai.chat.completions.create({
+      model: MODEL,
+      messages: [
+        {
+          role: "system",
+          content: `Du bist ein SEO-Experte. Analysiere die Website-Beschreibung und entscheide ob es sich um:
+1. EIN EINZELNES UNTERNEHMEN mit eigener Website (gut) - z.B. "Sültemeyer Sanitär-Heizung GmbH" mit eigener Firmenadresse, eigenem Team, eigenen Projekten
+2. EIN BRANCHENPORTAL/VERZEICHNIS (schlecht) - z.B. "Heizungsfinder.de" mit hunderten verschiedenen Firmen, "finden Sie Installateur in Ihrer Stadt", "für Partner werden" Button
+
+Antworte NUR mit gültigem JSON ohne weitere Erklärungen:
+{"isSingleCompany": true/false, "reason": "kurze Begründung"}`
+        },
+        {
+          role: "user",
+          content: `Analysiere diese Website:\n\n${crawlResult.content.substring(0, 5000)}`
+        }
+      ],
+      response_format: { type: "json_object" },
+    });
+
+    const content = response.choices[0]?.message?.content;
+    if (!content) {
+      console.warn("[CompanyValidator] No AI response, using fallback");
+      return isCompanyByHeuristics(url);
+    }
+
+    const parsed = JSON.parse(content);
+    const isSingle = parsed.isSingleCompany === true;
+    
+    console.log(`[CompanyValidator] Result for ${url}: isSingleCompany=${isSingle}, reason=${parsed.reason}`);
+    return isSingle;
+
+  } catch (error) {
+    console.error(`[CompanyValidator] Error checking ${url}:`, error);
+    return isCompanyByHeuristics(url);
+  }
+}
+
+/**
+ * Fallback-Heuristik wenn KI nicht verfügbar
+ * Prüft typische Muster in der URL und Domain
+ */
+function isCompanyByHeuristics(url: string): boolean {
+  try {
+    const parsedUrl = new URL(url);
+    const hostname = parsedUrl.hostname.toLowerCase().replace(/^www\./, "");
+    const pathname = parsedUrl.pathname.toLowerCase();
+
+    const companyIndicators = [
+      /^[a-z-]+\.(de|com|net|org)$/, // z.B. "sueltemeyer.de"
+      /\.(heizung|sanitaer|klempner|installation|bauer|handwerk)/, // Branchen-Domain
+    ];
+
+    const portalIndicators = [
+      /finder$/,
+      /vergleich$/,
+      /test$/,
+      /check$/,
+      /guide$/,
+      /-[a-z]+-in-/,
+      /\/(finden|vergleich|test)\//,
+    ];
+
+    for (const pattern of portalIndicators) {
+      if (pattern.test(hostname) || pattern.test(pathname)) {
+        console.log(`[CompanyValidator] [Heuristic] ${url} detected as portal`);
+        return false;
+      }
+    }
+
+    for (const pattern of companyIndicators) {
+      if (pattern.test(hostname)) {
+        console.log(`[CompanyValidator] [Heuristic] ${url} detected as company`);
+        return true;
+      }
+    }
+
+    console.log(`[CompanyValidator] [Heuristic] ${url} ambiguous, defaulting to true`);
+    return true;
+
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Validiert mehrere Domains parallel
+ * Gibt zurück welche Domains echte Unternehmen sind
+ */
+export async function validateCompanyDomains(
+  domains: Array<{ domain: string; rank: number }>
+): Promise<Array<{ domain: string; rank: number }>> {
+  console.log(`[CompanyValidator] Validating ${domains.length} domains...`);
+
+  if (domains.length === 0) {
+    return [];
+  }
+
+  const validCompanies: Array<{ domain: string; rank: number }> = [];
+
+  for (const item of domains) {
+    const isCompany = await isSingleCompanyWebsite(item.domain);
+    
+    if (isCompany) {
+      validCompanies.push(item);
+    } else {
+      console.log(`[CompanyValidator] Filtered out portal: ${item.domain}`);
+    }
+
+    // Rate limiting: 1s Pause zwischen Requests
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  }
+
+  console.log(`[CompanyValidator] Validated: ${validCompanies.length}/${domains.length} are companies`);
+  return validCompanies;
 }

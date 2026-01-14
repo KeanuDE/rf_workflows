@@ -47,6 +47,8 @@ rf_workflows/
 - `src/routes/workflow.ts:1` - Workflow API (`/workflow`)
 - `src/services/workflow.ts:24` - `runSEOKeywordWorkflow()` Hauptfunktion
 - `src/services/openai.ts:11` - OpenAI Modell-Konfiguration
+- `src/services/openai.ts:453` - `isSingleCompanyWebsite()` KI-Validator
+- `src/services/openai.ts:523` - `validateCompanyDomains()` Batch-Validator
 - `src/services/dataforseo.ts:9` - DataForSEO API Base URL
 - `src/services/crawler.ts:20` - Browserless WebSocket Endpoint
 
@@ -82,6 +84,7 @@ bun run typecheck
 6. **Validate**: Keywords nach Branchen-Relevanz filtern
 7. **Search Volume**: DataForSEO Batched API (max 40 Keywords)
 8. **SERP Results**: Top 5 Keywords SERP-Check mit Domain-Filterung
+9. **Company Validation**: AI-Prüfung ob Domains echte Firmen sind (nicht Portale)
 
 ## Domain-Blacklist
 
@@ -90,6 +93,15 @@ In `src/services/workflow.ts:200-268` definierte Blacklist für:
 - Branchenverzeichnisse (Gelbe Seiten, Yelp, etc.)
 - Job-Portale (Indeed, Stepstone, etc.)
 - Überregionale Infoseiten
+
+## KI-Company-Validator
+
+In `src/services/openai.ts:453-548` implementierter Validator:
+- Prüft ob eine Domain eine einzelne Firma oder ein Branchenportal ist
+- Crawlt die Website und analysiert den Content mit GPT-4o-mini
+- Erkennt einzelne Firmen durch: Impressum, "Über uns", Team-Seite, eigene Projekte
+- Erkennt Portale durch: "für Partner werden", hunderte Einträge, "finden Sie in Stadt"
+- Fallback-Heuristik bei API-Fehlern
 
 ## Coding-Konventionen
 
@@ -114,8 +126,10 @@ PORT=3000
 
 - Rate Limiting: 3s Pause zwischen DataForSEO Batches
 - Rate Limiting: 2s Pause zwischen SERP Requests
+- Rate Limiting: 1s Pause zwischen Company-Validierung
 - Fallback: Keywords ohne Suchvolumen werden behalten
 - Fallback: Apify wenn Puppeteer scheitert
+- Fallback: Heuristik wenn Company-Validator scheitert
 - Logging auf Deutsch für n8n-Kompatibilität
 
 ## Debugging

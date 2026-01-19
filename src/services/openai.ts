@@ -599,3 +599,449 @@ export async function validateCompanyDomains(
   console.log(`[CompanyValidator] Validated: ${validCompanies.length}/${domains.length} are companies`);
   return validCompanies;
 }
+
+// ============================================================================
+// INTENT-BASED KEYWORD GENERATION (Ticket: Keyword-Generierung Neudesign)
+// ============================================================================
+
+import { findIndustryTemplate, getTemplatePromptSection } from "./keywordTemplates";
+
+/**
+ * Ergebnis der Intent-Keyword-Generierung
+ */
+export interface IntentKeywordResult {
+  keywords: string[];
+  clusters: Array<{
+    name: string;
+    keywords: string[];
+  }>;
+}
+
+/**
+ * Input für Intent-Keyword-Generierung
+ */
+export interface IntentKeywordInput {
+  company_name: string;
+  industry: string;
+  industry_subcategory?: string;
+  custom_subcategory?: string;
+  description: string;
+  company_purpose: string;
+  location: string;
+  operating_region: "regional" | "nationwide" | string;
+}
+
+/**
+ * Hard-Filter für offensichtlich falsche Intents
+ * Wird VOR und NACH der KI-Generierung angewendet
+ * 
+ * Format: Reguläre Ausdrücke für Wortgrenzen-basiertes Matching
+ */
+const INTENT_HARD_FILTERS: RegExp[] = [
+  // Jobs/Karriere/Ausbildung
+  /\bjobs?\b/i,
+  /\bkarriere\b/i,
+  /\bausbildung\b/i,
+  /\bstudium\b/i,
+  /\buniversität\b/i,
+  /\buni\b/i,
+  /\bhochschule\b/i,
+  /\bpraktikum\b/i,
+  /\bwerkstudent/i,
+  /\bstellenangebot/i,
+  /\bgehalt\b/i,
+  /\bbewerbung schreiben\b/i,
+  /\blebenslauf\b/i,
+  
+  // Shop/E-Commerce (nicht "buchen" - das ist transaktional!)
+  /\bkaufen\b/i,
+  /\bbestellen\b/i,
+  /\bshop\b/i,
+  /\bamazon\b/i,
+  /\bebay\b/i,
+  /\bthomann\b/i,
+  /\bmediamarkt\b/i,
+  /\bsaturn\b/i,
+  /\botto\b/i,
+  /\bzalando\b/i,
+  /\bonline shop\b/i,
+  /\bversandkostenfrei\b/i,
+  /\brabatt\b/i,
+  /\bgutschein\b/i,
+  /\bangebot des tages\b/i,
+  
+  // Info/Research/Definition
+  /\bwas ist\b/i,
+  /\bdefinition\b/i,
+  /\bwikipedia\b/i,
+  /\bwiki\b/i,
+  /\berklärt\b/i,
+  /\btutorial\b/i,
+  /\blernen\b/i,
+  /\bkurs kostenlos\b/i,
+  /\byoutube\b/i,
+  /\bvideo anleitung\b/i,
+  /\bpdf download\b/i,
+  /\bbücher?\b/i, // "buch" oder "bücher" als ganzes Wort, nicht "buchen"
+  /\bratgeber\b/i,
+  
+  // Vergleiche/Rankings
+  /\btest\b/i,
+  /\btestsieger\b/i,
+  /\bstiftung warentest\b/i,
+  /\branking\b/i,
+  /\btop 10\b/i,
+  /\bbeste[rns]?\b/i,
+  /\bvergleich \d{4}\b/i,
+  /\bvs\b/i,
+  
+  // Portale
+  /\bcheck24\b/i,
+  /\bmyhammer\b/i,
+  /\bgelbe seiten\b/i,
+  /\byelp\b/i,
+  /\b11880\b/i,
+  /\bwer liefert was\b/i,
+];
+
+/**
+ * Prüft ob ein Keyword Hard-Filter verletzt
+ */
+function violatesHardFilter(keyword: string): boolean {
+  for (const pattern of INTENT_HARD_FILTERS) {
+    if (pattern.test(keyword)) {
+      return true;
+    }
+  }
+  
+  return false;
+}
+
+/**
+ * Filtert Keywords nach Hard-Filter
+ */
+function applyHardFilters(keywords: string[]): string[] {
+  return keywords.filter(kw => {
+    const violates = violatesHardFilter(kw);
+    if (violates) {
+      console.log(`[IntentKeywords] Hard-filtered: "${kw}"`);
+    }
+    return !violates;
+  });
+}
+
+/**
+ * Generiert Intent-basierte Keywords nach dem neuen Prompt-Design
+ * Ersetzt die alten extractKeywordsFromDescription/Services Funktionen
+ * 
+ * Prompt-Logik: "Wie würde ein Kunde nach diesem Anbieter suchen?"
+ */
+export async function generateIntentKeywords(
+  input: IntentKeywordInput
+): Promise<IntentKeywordResult> {
+  console.log(`[IntentKeywords] Generating intent keywords for ${input.company_name}...`);
+  console.log(`[IntentKeywords] Industry: ${input.industry}, Subcategory: ${input.industry_subcategory || "none"}`);
+  console.log(`[IntentKeywords] Operating region: ${input.operating_region}, Location: ${input.location}`);
+
+  // Finde passendes Branchen-Template
+  const template = findIndustryTemplate(
+    input.industry,
+    input.industry_subcategory || input.custom_subcategory
+  );
+  
+  if (template) {
+    console.log(`[IntentKeywords] Found industry template with ${template.patterns.length} patterns`);
+  } else {
+    console.log(`[IntentKeywords] No specific template found, using generic prompt`);
+  }
+
+  const templateSection = getTemplatePromptSection(template);
+  const isRegional = input.operating_region === "regional";
+
+  // Standortlogik gemäß Prompt
+  const locationInstruction = isRegional
+    ? `STANDORTLOGIK (VERBINDLICH):
+Da operating_region = "regional" gilt:
+- Jedes Keyword MUSS den Ort "${input.location}" enthalten
+- Generiere alle 30 Keywords mit diesem Ort
+- Beispiel korrekt: "Malerbetrieb ${input.location}", "Wohnung streichen lassen ${input.location}"
+- Beispiel falsch: "Malerbetrieb" (ohne Ort)`
+    : `STANDORTLOGIK (VERBINDLICH):
+Da operating_region = "nationwide" gilt:
+- KEINE Orte in den Keywords verwenden
+- Keywords rein thematisch generieren
+- Fokus auf Bedürfnis + Anbieterintention`;
+
+  const systemPrompt = `# Systemprompt – Keyword-Generierung nach realer Suchintention
+
+## Rolle & Haltung
+
+Du bist ein Spezialist für:
+- reales Suchverhalten
+- Google-SERPs
+- Nutzerpsychologie
+- Kaufintention
+- Dienstleister-Suchen
+
+Du arbeitest NICHT wie ein SEO-Tool, sondern wie ein Mensch, der täglich echte Suchanfragen analysiert.
+
+Dein Maßstab ist immer die Frage:
+> "Würde ein echter Mensch das wirklich genau so in Google eintippen, wenn er einen Anbieter sucht?"
+
+Du denkst strikt:
+- aus Kundensicht
+- mit Alltagssprache
+- ohne Marketingsprech
+- ohne Fachjargon
+- ohne interne Begriffe
+- ohne Unternehmensperspektive
+
+---
+
+## Ziel der Keywords
+
+Erzeuge Suchanfragen, die:
+
+- reale Nachfrage abbilden
+- Anbieter-Intention haben (Kontakt / Beauftragung / Angebot)
+- zu Dienstleistern führen (nicht zu Portalen, Shops, Lexika)
+- linguistisch natürlich wirken
+- branchenspezifisch korrekt sind
+- wirtschaftlich verwertbar sind (Leads, nicht Traffic-Spielerei)
+
+Jedes Keyword muss implizit bedeuten:
+> "Ich suche einen Anbieter, den ich beauftragen kann."
+
+---
+
+## Absolute Ausschlusskriterien (Hard Filter)
+
+Keines der Keywords darf enthalten oder implizieren:
+
+- Fachbegriffe, die nur Insider kennen
+- Marketingsprache ("maßgeschneidert", "innovativ", "führend")
+- interne Leistungsbezeichnungen
+- Produktnamen (außer bei Produzenten explizit gefordert)
+- Portale (z.B. Check24, MyHammer, Wer liefert was etc.)
+- Shops / E-Commerce
+- Wissen / Recherche / Definition
+- Ausbildung, Jobs, Karriere
+- Vergleiche ("bester Anbieter", "Test", "Ranking")
+- falsche Branchen-Assoziationen
+
+Wenn ein Keyword diese Kriterien verletzt → es darf NICHT generiert werden.
+
+---
+
+## Bevorzugte Sprachmuster
+
+Bevorzuge Suchlogiken wie echte Nutzer:
+
+- "firma für …"
+- "anbieter für …"
+- "betrieb für …"
+- "dienstleister für …"
+- "beratung zu …"
+- "… machen lassen"
+- "… beauftragen"
+- "angebot für …"
+- "… in der nähe"
+- "… kosten"
+- "… kontakt"
+
+Sprache:
+- einfach
+- konkret
+- intuitiv
+- alltagstauglich
+- nicht technisch
+
+---
+
+${locationInstruction}
+
+---
+${templateSection}
+---
+
+## Interne Qualitätsprüfung (Pflicht vor Ausgabe)
+
+Bevor du die Liste ausgibst, prüfe jedes Keyword intern gegen folgende Fragen:
+
+- Klingt das wie echte Sprache?
+- Würde jemand das genau so tippen?
+- Führt das zu Dienstleistern?
+- Passt es zur Branche?
+- Hat es Kontakt- oder Beauftragungsintention?
+
+Nur Keywords, die alle Fragen bestehen, dürfen ausgegeben werden.
+
+---
+
+## Ausgabeformat (verbindlich)
+
+Antworte NUR mit gültigem JSON im folgenden Format:
+{
+  "keywords": ["keyword1", "keyword2", ... bis zu 30 Keywords],
+  "clusters": [
+    {"name": "Clustername", "keywords": ["keyword1", "keyword2"]},
+    ...
+  ]
+}
+
+Cluster-Beispiele:
+- Anbieter / Firma suchen
+- Angebot & Preise
+- Beratung & Unterstützung
+- Spezifische Leistungen
+- Branchenfokus
+
+KEINE Erklärungen. KEINE Meta-Kommentare. NUR JSON.`;
+
+  const userPrompt = `Generiere Intent-Keywords für folgendes Unternehmen:
+
+Unternehmen: ${input.company_name}
+Branche: ${input.industry}${input.industry_subcategory ? ` / ${input.industry_subcategory}` : ""}
+Leistungen/Beschreibung: ${input.description}
+Zweck/Nutzen: ${input.company_purpose}
+Standort: ${input.location}
+Operating Region: ${input.operating_region}
+
+Generiere exakt 30 Keywords mit thematischer Clusterung.`;
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: MODEL,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+      response_format: { type: "json_object" },
+    });
+
+    const content = response.choices[0]?.message?.content;
+    if (!content) {
+      throw new Error("No response from OpenAI");
+    }
+
+    const parsed = JSON.parse(content) as IntentKeywordResult;
+    
+    // Validiere Struktur
+    if (!parsed.keywords || !Array.isArray(parsed.keywords)) {
+      console.warn("[IntentKeywords] Invalid response structure, extracting keywords...");
+      // Versuche Keywords aus dem Objekt zu extrahieren
+      const extractedKeywords: string[] = [];
+      if (parsed.clusters && Array.isArray(parsed.clusters)) {
+        for (const cluster of parsed.clusters) {
+          if (cluster.keywords && Array.isArray(cluster.keywords)) {
+            extractedKeywords.push(...cluster.keywords);
+          }
+        }
+      }
+      parsed.keywords = extractedKeywords;
+    }
+
+    // Wende Hard-Filter an
+    const originalCount = parsed.keywords.length;
+    parsed.keywords = applyHardFilters(parsed.keywords);
+    
+    if (parsed.keywords.length < originalCount) {
+      console.log(`[IntentKeywords] Hard-filtered ${originalCount - parsed.keywords.length} keywords`);
+    }
+
+    // Aktualisiere auch Cluster-Keywords
+    if (parsed.clusters && Array.isArray(parsed.clusters)) {
+      for (const cluster of parsed.clusters) {
+        if (cluster.keywords && Array.isArray(cluster.keywords)) {
+          cluster.keywords = applyHardFilters(cluster.keywords);
+        }
+      }
+    }
+
+    console.log(`[IntentKeywords] Generated ${parsed.keywords.length} intent keywords`);
+    console.log(`[IntentKeywords] Sample: ${parsed.keywords.slice(0, 5).join(", ")}`);
+
+    return parsed;
+  } catch (error) {
+    console.error("[IntentKeywords] Error generating keywords:", error);
+    throw error;
+  }
+}
+
+/**
+ * Wählt die besten Keywords für SERP/Wettbewerber-Analyse aus
+ * Priorisiert transaktionale Keywords mit Anbieter-Intent
+ */
+export function selectTopKeywordsForSERP(
+  result: IntentKeywordResult,
+  maxKeywords: number = 12
+): string[] {
+  const keywords = result.keywords;
+  
+  if (keywords.length <= maxKeywords) {
+    return keywords;
+  }
+
+  // Priorisiere Keywords mit starken transaktionalen Signalen
+  const transactionalPatterns = [
+    /buchen/i,
+    /beauftragen/i,
+    /bestellen/i,
+    /anfrage/i,
+    /angebot/i,
+    /kosten/i,
+    /preis/i,
+    /firma/i,
+    /betrieb/i,
+    /service/i,
+    /dienstleister/i,
+    /machen lassen/i,
+  ];
+
+  const scored = keywords.map(kw => {
+    let score = 0;
+    for (const pattern of transactionalPatterns) {
+      if (pattern.test(kw)) {
+        score += 1;
+      }
+    }
+    return { keyword: kw, score };
+  });
+
+  // Sortiere nach Score (höchster zuerst), dann nach Position (für Stabilität)
+  scored.sort((a, b) => b.score - a.score);
+
+  // Wähle diverse Keywords aus verschiedenen Clustern wenn möglich
+  const selected: string[] = [];
+  const usedClusters = new Set<string>();
+
+  // Erst: Je 1-2 Keywords pro Cluster
+  if (result.clusters && result.clusters.length > 0) {
+    for (const cluster of result.clusters) {
+      if (selected.length >= maxKeywords) break;
+      
+      const clusterKeywords = cluster.keywords.filter(kw => 
+        !selected.includes(kw) && keywords.includes(kw)
+      );
+      
+      // Nimm bis zu 2 Keywords pro Cluster
+      for (const kw of clusterKeywords.slice(0, 2)) {
+        if (selected.length < maxKeywords && !selected.includes(kw)) {
+          selected.push(kw);
+          usedClusters.add(cluster.name);
+        }
+      }
+    }
+  }
+
+  // Dann: Fülle mit höchst-bewerteten Keywords auf
+  for (const { keyword } of scored) {
+    if (selected.length >= maxKeywords) break;
+    if (!selected.includes(keyword)) {
+      selected.push(keyword);
+    }
+  }
+
+  console.log(`[IntentKeywords] Selected ${selected.length} top keywords for SERP analysis`);
+  return selected;
+}

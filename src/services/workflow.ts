@@ -16,6 +16,9 @@ import {
   generateLocalSEOKeywords,
   validateKeywords,
   validateCompanyDomains,
+  generateIntentKeywords,
+  selectTopKeywordsForSERP,
+  type IntentKeywordInput,
 } from "./openai";
 
 /**
@@ -58,40 +61,71 @@ export async function runSEOKeywordWorkflow(
     console.log(`Operating region is '${input.operating_region || "undefined"}' (not 'regional'). Using Germany default (2276).`);
   }
 
-  // Step 3: Extract keywords parallel (by description AND by company purpose)
-  console.log("\n[Step 3] Extracting keywords from description and services...");
+  // Step 3: Generate Intent-based Keywords (Neudesign: "Suchintention aus Kundensicht")
+  // Ersetzt die alte Extraktion + Synonym-Generierung durch einen einzigen Intent-Generator
+  console.log("\n[Step 3] Generating intent-based keywords (user search perspective)...");
 
   const servicesText = input.company_purpose.services
     .map((s) => `${s.name}: ${s.description}`)
     .join("\n");
 
-  console.log("Description length:", input.description.length);
-  console.log("Services text length:", servicesText.length);
+  const intentInput: IntentKeywordInput = {
+    company_name: input.company_name,
+    industry: input.industry,
+    industry_subcategory: input.industry_subcategory,
+    custom_subcategory: input.custom_subcategory,
+    description: `${input.description}\n\nServices:\n${servicesText}`,
+    company_purpose: input.company_purpose.description,
+    location: locationInfo.location,
+    operating_region: input.operating_region || "regional",
+  };
 
-  let descriptionKeywords: string[] = [];
-  let serviceKeywords: string[] = [];
+  let validatedKeywords: string[] = [];
 
   try {
-    [descriptionKeywords, serviceKeywords] = await Promise.all([
-      extractKeywordsFromDescription(input.description, finalLocationCode),
-      extractKeywordsFromServices(servicesText, finalLocationCode),
-    ]);
+    const intentResult = await generateIntentKeywords(intentInput);
+    
+    console.log(`[Step 3] Generated ${intentResult.keywords.length} intent keywords`);
+    if (intentResult.clusters && intentResult.clusters.length > 0) {
+      console.log(`[Step 3] Clusters: ${intentResult.clusters.map(c => c.name).join(", ")}`);
+    }
+
+    // Wähle die besten 8-12 Keywords für SERP/Wettbewerber-Analyse
+    // (Prompt erzeugt 30, aber für Competitors brauchen wir fokussierte Auswahl)
+    validatedKeywords = selectTopKeywordsForSERP(intentResult, 12);
+    
+    console.log(`[Step 3] Selected ${validatedKeywords.length} top keywords for SERP analysis`);
+    console.log(`[Step 3] Sample:`, validatedKeywords.slice(0, 5));
+
   } catch (error) {
-    console.error("Error extracting keywords:", error);
+    console.error("Error generating intent keywords:", error);
+    
+    // Fallback: Alte Methode verwenden
+    console.log("[Step 3] Falling back to legacy keyword extraction...");
+    
+    let descriptionKeywords: string[] = [];
+    let serviceKeywords: string[] = [];
+
+    try {
+      [descriptionKeywords, serviceKeywords] = await Promise.all([
+        extractKeywordsFromDescription(input.description, finalLocationCode),
+        extractKeywordsFromServices(servicesText, finalLocationCode),
+      ]);
+    } catch (fallbackError) {
+      console.error("Fallback extraction also failed:", fallbackError);
+    }
+
+    const mergedKeywords = [...descriptionKeywords.slice(0, 20), ...serviceKeywords.slice(0, 20)];
+    
+    // Add location to each keyword ONLY if regional (legacy behavior)
+    const isRegional = input.operating_region === "regional";
+    validatedKeywords = isRegional
+      ? mergedKeywords.map((kw) => `${kw} ${locationInfo.location}`)
+      : mergedKeywords;
   }
 
-  console.log("Keywords from description:", descriptionKeywords.length, descriptionKeywords.slice(0, 5));
-  console.log("Keywords from services:", serviceKeywords.length, serviceKeywords.slice(0, 5));
-
-  // Step 4: Merge and limit keywords (max 20 each, then merge)
-  const limitedDescKeywords = descriptionKeywords.slice(0, 20);
-  const limitedServiceKeywords = serviceKeywords.slice(0, 20);
-  const mergedKeywords = [...limitedDescKeywords, ...limitedServiceKeywords];
-
-  console.log("\n[Step 4] Merged keywords:", mergedKeywords.length);
-
-  if (mergedKeywords.length === 0) {
-    console.error("No keywords extracted! Returning empty result.");
+  if (validatedKeywords.length === 0) {
+    console.error("No keywords generated! Returning empty result.");
     return {
       keywords: [],
       location: locationInfo.location,
@@ -99,59 +133,9 @@ export async function runSEOKeywordWorkflow(
     };
   }
 
-  // Add location to each keyword ONLY if regional
-  const isRegional = input.operating_region === "regional";
-  const keywordsWithLocation = isRegional
-    ? mergedKeywords.map((kw) => `${kw} ${locationInfo.location}`)
-    : mergedKeywords;
-
-  console.log(`Keywords with location (regional=${isRegional}):`, keywordsWithLocation.length);
-  console.log("Sample:", keywordsWithLocation.slice(0, 3));
-
-  // Step 5: Generate local SEO synonyms (Keyword searcher)
-  console.log("\n[Step 5] Generating local SEO synonyms...");
-  let localSEOKeywords: string[] = [];
-  
-  if (isRegional) {
-    try {
-      localSEOKeywords = await generateLocalSEOKeywords(
-        keywordsWithLocation,
-        locationInfo.genre,
-        finalLocationCode
-      );
-      console.log("Generated", localSEOKeywords.length, "local SEO keywords");
-    } catch (error) {
-      console.error("Error generating local SEO keywords:", error);
-    }
-  } else {
-    console.log("Skipping local SEO synonyms generation (not regional)");
-  }
-
-  // Step 6: Combine all keywords
-  const allKeywords = [...keywordsWithLocation, ...localSEOKeywords];
-  console.log("\n[Step 6] Total keywords before validation:", allKeywords.length);
-
-  // Step 7: Validate keywords (Keyword validator)
-  console.log("\n[Step 7] Validating keywords...");
-  let validatedKeywords: string[] = [];
-  
-  try {
-    validatedKeywords = await validateKeywords(allKeywords, locationInfo.genre);
-    console.log("Validated keywords:", validatedKeywords.length);
-  } catch (error) {
-    console.error("Error validating keywords:", error);
-    // Fallback: use all keywords if validation fails
-    validatedKeywords = allKeywords;
-  }
-
-  if (validatedKeywords.length === 0) {
-    console.warn("No validated keywords! Using original keywords.");
-    validatedKeywords = allKeywords;
-  }
-
-  // Step 8: Get search volume for keywords (batched, max 40)
+  // Step 4: Get search volume for keywords (batched, max 40)
   const keywordsToCheck = validatedKeywords.slice(0, 40);
-  console.log("\n[Step 8] Getting search volume for", keywordsToCheck.length, "keywords (location:", finalLocationCode, ")...");
+  console.log("\n[Step 4] Getting search volume for", keywordsToCheck.length, "keywords (location:", finalLocationCode, ")...");
 
   let keywordDataList: KeywordData[] = [];
   try {
@@ -164,15 +148,15 @@ export async function runSEOKeywordWorkflow(
     
     // Debug: Zeige welche Keywords Suchvolumen haben
     const withVolume = keywordDataList.filter(k => k.search_volume && k.search_volume > 0);
-    console.log(`[Step 8] Keywords with volume > 0: ${withVolume.length}`);
+    console.log(`[Step 4] Keywords with volume > 0: ${withVolume.length}`);
     if (withVolume.length > 0) {
-      console.log(`[Step 8] Sample:`, withVolume.slice(0, 3).map(k => `${k.keyword}: ${k.search_volume}`));
+      console.log(`[Step 4] Sample:`, withVolume.slice(0, 3).map(k => `${k.keyword}: ${k.search_volume}`));
     }
   } catch (error) {
     console.error("Error getting search volume:", error);
   }
 
-  // Step 9: Sort by search volume and limit to top 5
+  // Step 5: Sort by search volume and limit to top 5
   // Wenn keine Daten von DataForSEO, nutze die Keywords trotzdem
   let sortedKeywords: KeywordData[];
   
@@ -183,12 +167,12 @@ export async function runSEOKeywordWorkflow(
       .filter((kw) => kw && kw.keyword)
       .sort((a, b) => (b.search_volume || 0) - (a.search_volume || 0))
       .slice(0, 5);
-    console.log("\n[Step 9] Top keywords by volume:", sortedKeywords.length);
+    console.log("\n[Step 5] Top keywords by volume:", sortedKeywords.length);
     
     // Warnung wenn alle Keywords kein Suchvolumen haben
     const keywordsWithVolume = sortedKeywords.filter(kw => kw.search_volume && kw.search_volume > 0);
     if (keywordsWithVolume.length === 0 && sortedKeywords.length > 0) {
-      console.warn("[Step 9] Warning: No keywords have measurable search volume (common for local niche keywords)");
+      console.warn("[Step 5] Warning: No keywords have measurable search volume (common for local niche keywords)");
     }
   } else {
     // Fallback: Erstelle KeywordData ohne Search Volume
@@ -202,8 +186,8 @@ export async function runSEOKeywordWorkflow(
 
   console.log("Keywords to process:", sortedKeywords.map(k => k.keyword));
 
-  // Step 10: Get SERP results for top keywords
-  console.log("\n[Step 10] Getting SERP results for top keywords...");
+  // Step 6: Get SERP results for top keywords
+  console.log("\n[Step 6] Getting SERP results for top keywords...");
   const keywordResults: KeywordResult[] = [];
 
   // Blacklist für Vergleichsportale, Aggregatoren und überregionale Seiten

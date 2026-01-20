@@ -14,12 +14,6 @@ services:
       - "3100:3000"
     networks:
       - regionalflat
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/pressure"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
 
   rf_workflows:
     build:
@@ -28,8 +22,7 @@ services:
     container_name: rf_workflows
     restart: unless-stopped
     depends_on:
-      browserless:
-        condition: service_healthy
+      - browserless
     environment:
       - PORT=3555
       - OPENAI_API_KEY=${OPENAI_API_KEY}

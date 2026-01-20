@@ -6,10 +6,11 @@ services:
     environment:
       - TOKEN=6R0W53R135510
       - MAX_CONCURRENT_SESSIONS=5
-      - CONNECTION_TIMEOUT=60000
+      - CONNECTION_TIMEOUT=120000
       - MAX_QUEUE_LENGTH=10
       - PREBOOT_CHROME=true
       - ENABLE_DEBUGGER=false
+      - KEEP_ALIVE=true
     ports:
       - "3100:3000"
     networks:

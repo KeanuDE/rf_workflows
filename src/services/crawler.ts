@@ -109,18 +109,29 @@ function isForbiddenResponse(content: string): boolean {
 /**
  * Scrape Website mit Puppeteer über WebSocket (browserless)
  * Entspricht dem "Puppeteer1" Node im n8n Workflow
+ * Mit Retry-Logic für ECONNRESET und Connection-Errors
  */
-async function scrapeWithPuppeteer(url: string): Promise<PuppeteerResult> {
-  console.log(`[Crawler] Scraping with Puppeteer (browserless): ${url}`);
+async function scrapeWithPuppeteer(url: string, retryCount = 0): Promise<PuppeteerResult> {
+  const MAX_RETRIES = 2;
+  const RETRY_DELAY = 1000; // 1 second
+  
+  console.log(`[Crawler] Scraping with Puppeteer (browserless): ${url}${retryCount > 0 ? ` (retry ${retryCount}/${MAX_RETRIES})` : ""}`);
   
   let browser;
+  let page;
+  
   try {
-    // Verbinde zu browserless über WebSocket
-    browser = await puppeteer.connect({
-      browserWSEndpoint: BROWSERLESS_WS_ENDPOINT,
-    });
+    // Verbinde zu browserless über WebSocket mit Timeout
+    browser = await Promise.race([
+      puppeteer.connect({
+        browserWSEndpoint: BROWSERLESS_WS_ENDPOINT,
+      }),
+      new Promise<never>((_, reject) => 
+        setTimeout(() => reject(new Error("Browser connection timeout after 10s")), 10000)
+      )
+    ]);
 
-    const page = await browser.newPage();
+    page = await browser.newPage();
     
     // Timeout setzen
     page.setDefaultNavigationTimeout(30000);
@@ -144,9 +155,34 @@ async function scrapeWithPuppeteer(url: string): Promise<PuppeteerResult> {
     
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorCode = (error as any)?.code || "";
+    
+    // Check if it's a connection error that should be retried
+    const isConnectionError = 
+      errorCode === "ECONNRESET" || 
+      errorMessage.includes("ECONNRESET") ||
+      errorMessage.includes("WebSocket") ||
+      errorMessage.includes("connection") ||
+      errorMessage.includes("Connection timeout");
+    
+    if (isConnectionError && retryCount < MAX_RETRIES) {
+      console.warn(`[Crawler] Connection error for ${url}, retrying in ${RETRY_DELAY}ms...`);
+      await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+      return scrapeWithPuppeteer(url, retryCount + 1);
+    }
+    
     console.error(`[Crawler] Puppeteer error for ${url}:`, errorMessage);
     return { body: "", footer: "", error: errorMessage };
+    
   } finally {
+    // Ensure cleanup even on errors
+    if (page) {
+      try {
+        await page.close();
+      } catch (e) {
+        // Ignore close errors
+      }
+    }
     if (browser) {
       try {
         await browser.disconnect();
@@ -364,9 +400,9 @@ export async function crawlWebsiteRaw(url: string): Promise<string> {
 }
 
 /**
- * Lightweight crawler für Company Validation - NO APIFY FALLBACK
- * Nur Puppeteer versuchen, danach empty string zurückgeben
- * Das spart Apify-Memory und der Validator nutzt Heuristics als Fallback
+ * Lightweight crawler für Company Validation - MIT APIFY FALLBACK
+ * Versucht zuerst Puppeteer (mit Retry), dann Apify als Fallback
+ * Wenn beide scheitern, nutzt der Validator Heuristics als Fallback
  */
 export async function crawlWebsiteLightweight(input: CrawlerInput): Promise<CrawlerOutput> {
   try {
@@ -376,21 +412,38 @@ export async function crawlWebsiteLightweight(input: CrawlerInput): Promise<Craw
     await new Promise(resolve => setTimeout(resolve, 2000));
 
     let html = "";
+    let usedMethod = "";
 
-    // Step 2: Nur Puppeteer versuchen
+    // Step 2: Versuche zuerst mit Puppeteer (mit Retry-Logic)
     const puppeteerResult = await scrapeWithPuppeteer(input.url);
 
     if (puppeteerResult.error) {
-      console.log(`[Crawler] Puppeteer failed: ${puppeteerResult.error}, returning empty for lightweight crawl`);
-      return { content: "" };
+      // Puppeteer gescheitert, versuche Apify als Fallback
+      console.log(`[Crawler] Puppeteer failed: ${puppeteerResult.error}, falling back to Apify for lightweight crawl`);
+      try {
+        html = await scrapeWithApify(input.url);
+        usedMethod = "apify (fallback)";
+      } catch (apifyError) {
+        console.error(`[Crawler] Apify also failed:`, apifyError);
+        return { content: "" };
+      }
     } else if (!puppeteerResult.body || isForbiddenResponse(puppeteerResult.body)) {
-      console.log(`[Crawler] Puppeteer returned empty/forbidden, returning empty for lightweight crawl`);
-      return { content: "" };
+      // Puppeteer leer/403, versuche Apify als Fallback
+      console.log(`[Crawler] Puppeteer returned empty/forbidden, falling back to Apify for lightweight crawl`);
+      try {
+        html = await scrapeWithApify(input.url);
+        usedMethod = "apify (403 fallback)";
+      } catch (apifyError) {
+        console.error(`[Crawler] Apify also failed:`, apifyError);
+        return { content: "" };
+      }
     } else {
+      // Puppeteer war erfolgreich
       html = puppeteerResult.body;
+      usedMethod = "puppeteer";
     }
 
-    console.log(`[Crawler] Lightweight scraped ${html.length} chars via Puppeteer`);
+    console.log(`[Crawler] Lightweight scraped ${html.length} chars via ${usedMethod}`);
 
     if (!html) {
       return { content: "" };

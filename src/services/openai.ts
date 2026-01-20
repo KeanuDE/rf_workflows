@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 import type { LocationFinderOutput, WorkflowInput, CrawlerInput, CrawlerOutput } from "../types";
-import { crawlWebsite } from "./crawler";
+import { crawlWebsite, crawlWebsiteLightweight } from "./crawler";
 import { getSERPResults } from "./dataforseo";
 import { violatesHardFilter, INTENT_HARD_FILTERS } from "../constants/intentHardFilters";
 
@@ -481,7 +481,8 @@ export async function isSingleCompanyWebsite(url: string): Promise<boolean> {
   console.log(`[CompanyValidator] Checking if "${url}" is a single company website...`);
 
   try {
-    const crawlResult = await crawlWebsite({
+    // Use lightweight crawler (Puppeteer only, no Apify) to avoid memory limit errors
+    const crawlResult = await crawlWebsiteLightweight({
       url,
       what: "Ist dies die Website eines einzelnen Unternehmens mit eigenem Angebot, oder ein Branchenportal/Verzeichnis mit vielen verschiedenen Firmen? Analysiere: 1) Gibt es ein Impressum mit einer einzelnen Firmenadresse? 2) Werden Dienstleistungen von nur einer Firma beschrieben? 3) Gibt es 'für Partner' oder 'für Unternehmen' Sektionen? 4) Gibt es eine klare 'Über uns' Seite mit Unternehmensgeschichte? Antworte mit JSON: {isSingleCompany: boolean, reason: string}"
     });

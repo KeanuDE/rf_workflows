@@ -20,6 +20,48 @@ import { htmlToText } from "../utils/htmlToText";
 // Browserless WebSocket URL
 const BROWSERLESS_WS_ENDPOINT = process.env.BROWSERLESS_WS_ENDPOINT || "ws://browserless:3000/?token=6R0W53R135510";
 
+/**
+ * Circuit Breaker für Apify Memory Limit Errors
+ * Verhindert dass weitere Apify Calls gemacht werden wenn das Memory Limit erreicht ist
+ */
+class ApifyCircuitBreaker {
+  private memoryLimitHit = false;
+  private lastErrorTime = 0;
+  private readonly ERROR_RESET_TIMEOUT = 60000; // 60 Sekunden
+
+  recordMemoryLimitError(): void {
+    console.warn("[ApifyCircuitBreaker] Memory limit error detected, circuit breaker OPEN");
+    this.memoryLimitHit = true;
+    this.lastErrorTime = Date.now();
+  }
+
+  canUseApify(): boolean {
+    // Check if circuit breaker should reset after timeout
+    if (this.memoryLimitHit) {
+      const timeSinceError = Date.now() - this.lastErrorTime;
+      if (timeSinceError > this.ERROR_RESET_TIMEOUT) {
+        console.log("[ApifyCircuitBreaker] Reset timeout reached, attempting to use Apify again");
+        this.memoryLimitHit = false;
+        return true;
+      }
+      console.warn("[ApifyCircuitBreaker] Circuit breaker still OPEN, skipping Apify");
+      return false;
+    }
+    return true;
+  }
+
+  isOpen(): boolean {
+    return this.memoryLimitHit;
+  }
+}
+
+const apifyCircuitBreaker = new ApifyCircuitBreaker();
+
+// Export circuit breaker status
+export function getApifyCircuitBreakerStatus(): { open: boolean } {
+  return { open: apifyCircuitBreaker.isOpen() };
+}
+
 // SSL-Fehler die einen http-Fallback auslösen
 const SSL_ERRORS = [
   "ERR_SSL_VERSION_OR_CIPHER_MISMATCH",
@@ -120,47 +162,64 @@ async function scrapeWithPuppeteer(url: string): Promise<PuppeteerResult> {
  * Entspricht dem "Apify1" Node im n8n Workflow
  * 
  * WICHTIG: Nutzt minimal memory config (2048MB) um Apify's 32GB Free-Tier Limit nicht zu überschreiten
+ * Hat Circuit Breaker für Memory Limit Errors
  */
 async function scrapeWithApify(url: string): Promise<string> {
+  // Check circuit breaker first
+  if (!apifyCircuitBreaker.canUseApify()) {
+    console.log("[Crawler] Apify circuit breaker is open, skipping Apify");
+    return "";
+  }
+
   const client = getApifyClient();
 
   console.log(`[Crawler] Scraping with Apify (playwright:firefox): ${url}`);
 
-  // Web Scraper Actor mit playwright:firefox
-  // https://apify.com/apify/web-scraper
-  // HINWEIS: memory 2048MB reduziert Apify Speicher-Druck (32GB Free Tier Limit)
-  const run = await client.actor("apify/web-scraper").call({
-    startUrls: [{ url }],
-    pageFunction: `
-      async function pageFunction(context) {
-        const $ = context.jQuery;
-        const html = $('body').html() || '';
-        return {
-          url: context.request.url,
-          html: html
-        };
-      }
-    `,
-    proxyConfiguration: {
-      useApifyProxy: true,
-    },
-    maxCrawlPages: 1,
-    maxCrawlDepth: 0,
-    memory: 2048,
-  });
+  try {
+    // Web Scraper Actor mit playwright:firefox
+    // https://apify.com/apify/web-scraper
+    // HINWEIS: memory 2048MB reduziert Apify Speicher-Druck (32GB Free Tier Limit)
+    const run = await client.actor("apify/web-scraper").call({
+      startUrls: [{ url }],
+      pageFunction: `
+        async function pageFunction(context) {
+          const $ = context.jQuery;
+          const html = $('body').html() || '';
+          return {
+            url: context.request.url,
+            html: html
+          };
+        }
+      `,
+      proxyConfiguration: {
+        useApifyProxy: true,
+      },
+      maxCrawlPages: 1,
+      maxCrawlDepth: 0,
+      memory: 2048,
+    });
 
-  // Get results from the dataset
-  const { items } = await client.dataset(run.defaultDatasetId).listItems();
+    // Get results from the dataset
+    const { items } = await client.dataset(run.defaultDatasetId).listItems();
 
-  if (items.length === 0 || !items[0]) {
-    console.warn("[Crawler] No content found from Apify scraper");
-    return "";
+    if (items.length === 0 || !items[0]) {
+      console.warn("[Crawler] No content found from Apify scraper");
+      return "";
+    }
+
+    const html = (items[0] as Record<string, unknown>).html as string || "";
+    console.log(`[Crawler] Apify scraped ${html.length} chars from ${url}`);
+
+    return html;
+  } catch (error) {
+    // Check if this is a memory limit error
+    const errorStr = String(error);
+    if (errorStr.includes("actor-memory-limit-exceeded") || errorStr.includes("exceed the memory limit")) {
+      apifyCircuitBreaker.recordMemoryLimitError();
+      console.error("[Crawler] Apify memory limit hit, circuit breaker activated");
+    }
+    throw error;
   }
-
-  const html = (items[0] as Record<string, unknown>).html as string || "";
-  console.log(`[Crawler] Apify scraped ${html.length} chars from ${url}`);
-
-  return html;
 }
 
 /**
@@ -293,5 +352,56 @@ export async function crawlWebsiteRaw(url: string): Promise<string> {
   } catch (error) {
     console.error("[Crawler] Raw crawler error:", error);
     return "";
+  }
+}
+
+/**
+ * Lightweight crawler für Company Validation - NO APIFY FALLBACK
+ * Nur Puppeteer versuchen, danach empty string zurückgeben
+ * Das spart Apify-Memory und der Validator nutzt Heuristics als Fallback
+ */
+export async function crawlWebsiteLightweight(input: CrawlerInput): Promise<CrawlerOutput> {
+  try {
+    console.log(`[Crawler] Lightweight crawl for: ${input.url}`);
+    
+    // Step 1: 2 Sekunden warten
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    let html = "";
+
+    // Step 2: Nur Puppeteer versuchen
+    const puppeteerResult = await scrapeWithPuppeteer(input.url);
+
+    if (puppeteerResult.error) {
+      console.log(`[Crawler] Puppeteer failed: ${puppeteerResult.error}, returning empty for lightweight crawl`);
+      return { content: "" };
+    } else if (!puppeteerResult.body || isForbiddenResponse(puppeteerResult.body)) {
+      console.log(`[Crawler] Puppeteer returned empty/forbidden, returning empty for lightweight crawl`);
+      return { content: "" };
+    } else {
+      html = puppeteerResult.body;
+    }
+
+    console.log(`[Crawler] Lightweight scraped ${html.length} chars via Puppeteer`);
+
+    if (!html) {
+      return { content: "" };
+    }
+
+    // Step 5: HTML zu Markdown/Text konvertieren
+    const markdown = htmlToText(html);
+    console.log(`[Crawler] Converted to ${markdown.length} chars markdown`);
+
+    // Step 6: Wenn "what" angegeben, KI-Agent nutzen um relevante Infos zu extrahieren
+    if (input.what && input.what.trim()) {
+      const extracted = await extractWithAI(markdown, input.what);
+      return { content: extracted };
+    }
+
+    // Sonst einfach den konvertierten Text zurückgeben
+    return { content: markdown.substring(0, 15000) };
+  } catch (error) {
+    console.error("[Crawler] Lightweight error:", error);
+    return { content: "" };
   }
 }

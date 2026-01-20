@@ -13,56 +13,49 @@ Dieses Projekt ist eine Node.js/Bun-Portierung eines n8n SEO Keyword Research Wo
 
 - **Runtime**: Bun 1.2+
 - **Framework**: Elysia (Web-Framework)
-- **APIs**: OpenAI (GPT-4o-mini), DataForSEO, Apify, Puppeteer
-- **Sprache**: TypeScript
+- **APIs**: OpenAI (GPT-5-mini, GPT-4.1-nano), DataForSEO, Apify, Puppeteer
+- **Sprache**: TypeScript (strict mode)
+- **Docker**: docker-compose mit Browserless service
 
 ## Projektstruktur
 
 ```
-rf_workflows/
-├── src/
-│   ├── routes/                  # Elysia Route-Module (grouped by feature)
-│   │   ├── index.ts             # Basis-Routen (/)
-│   │   ├── health.ts            # Health Check (/health)
-│   │   ├── debug.ts             # Debug Endpunkte (/debug)
-│   │   └── workflow.ts          # Workflow API (/workflow)
-│   ├── services/
-│   │   ├── workflow.ts          # Hauptworkflow-Orchestrierung
-│   │   ├── openai.ts            # OpenAI Agenten für Keyword-Extraktion
-│   │   ├── dataforseo.ts        # DataForSEO API Wrapper
-│   │   └── crawler.ts           # Website-Crawling (Puppeteer + Apify)
-│   └── types/
-│       └── index.ts             # TypeScript Interfaces
-├── index.ts                      # Elysia Server Setup
-├── workflow.json                 # Original n8n Workflow (Referenz)
-├── package.json
-└── tsconfig.json
+src/
+├── routes/         # Elysia API Endpunkte (index, health, debug, workflow)
+├── services/       # Business Logic (workflow, openai, dataforseo, crawler)
+├── constants/      # Blacklists, Filters
+├── types/          # TypeScript Type Definitions
+└── utils/          # Helper Functions
 ```
 
-## Wichtige Dateien
-
-- `src/routes/index.ts:1` - Basis-Routen (`/`)
-- `src/routes/health.ts:1` - Health Check (`/health`)
-- `src/routes/debug.ts:1` - Debug Endpunkte (`/debug`)
-- `src/routes/workflow.ts:1` - Workflow API (`/workflow`)
+**Wichtige Dateien:**
 - `src/services/workflow.ts:24` - `runSEOKeywordWorkflow()` Hauptfunktion
-- `src/services/openai.ts:11` - OpenAI Modell-Konfiguration
-- `src/services/openai.ts:453` - `isSingleCompanyWebsite()` KI-Validator
-- `src/services/openai.ts:523` - `validateCompanyDomains()` Batch-Validator
-- `src/services/dataforseo.ts:9` - DataForSEO API Base URL
-- `src/services/crawler.ts:20` - Browserless WebSocket Endpoint
+- `src/services/openai.ts:467` - `isSingleCompanyWebsite()` KI-Validator
+- `src/services/crawler.ts:161` - Apify Scraper mit Circuit Breaker
+- `src/constants/domainBlacklist.ts` - Portal-Filterung
 
-## Verfügbare Scripts
+## Build/Test/Lint Commands
 
 ```bash
 # Development mit Hot-Reload
 bun run dev
 
 # Production Start
+bun run start
+# oder direkt:
 bun run index.ts
 
-# TypeScript Type-Check
+# TypeScript Type-Check (wichtig vor Commits!)
 bun run typecheck
+
+# Docker Commands
+docker-compose up -d              # Start services (rf_workflows + browserless)
+docker-compose logs -f            # View logs
+docker-compose down               # Stop services
+docker-compose restart rf_workflows  # Restart main service
+
+# Einzelne Tests laufen nicht - keine Test-Suite konfiguriert
+# API Tests manuell via curl oder Postman gegen localhost:3555
 ```
 
 ## API Endpunkte
@@ -86,30 +79,42 @@ bun run typecheck
 8. **SERP Results**: Top 5 Keywords SERP-Check mit Domain-Filterung
 9. **Company Validation**: AI-Prüfung ob Domains echte Firmen sind (nicht Portale)
 
-## Domain-Blacklist
+## Code Style Guidelines
 
-In `src/services/workflow.ts:200-268` definierte Blacklist für:
-- Vergleichsportale (Check24, MyHammer, etc.)
-- Branchenverzeichnisse (Gelbe Seiten, Yelp, etc.)
-- Job-Portale (Indeed, Stepstone, etc.)
-- Überregionale Infoseiten
+### TypeScript & Types
+- **Strict Mode**: Alle TypeScript strict flags aktiv (siehe tsconfig.json)
+- **Explicit Types**: Funktionsparameter und Return-Types immer typisieren
+- **Type Imports**: `import type { ... }` für Type-only imports nutzen
+- **No Any**: Vermeide `any`, nutze `unknown` oder spezifische Types
+- **Interface vs Type**: Für Objekte `type` bevorzugen (konsistent im Projekt)
 
-## KI-Company-Validator
+### Imports
+- **Reihenfolge**: 1) Type imports, 2) External dependencies, 3) Internal modules
 
-In `src/services/openai.ts:453-548` implementierter Validator:
-- Prüft ob eine Domain eine einzelne Firma oder ein Branchenportal ist
-- Crawlt die Website und analysiert den Content mit GPT-4o-mini
-- Erkennt einzelne Firmen durch: Impressum, "Über uns", Team-Seite, eigene Projekte
-- Erkennt Portale durch: "für Partner werden", hunderte Einträge, "finden Sie in Stadt"
-- Fallback-Heuristik bei API-Fehlern
+### Naming Conventions
+- **Files**: kebab-case (`keyword-templates.ts`, `domain-blacklist.ts`)
+- **Functions**: camelCase (`extractKeywords`, `findLocation`)
+- **Constants**: SCREAMING_SNAKE_CASE (`MODEL`, `GERMANY_LOCATION_CODE`)
+- **Types/Interfaces**: PascalCase (`WorkflowInput`, `KeywordResult`)
+- **Private Functions**: camelCase ohne Prefix (nicht `_private`)
 
-## Coding-Konventionen
+### Error Handling
+- Console Logging: `console.log("[Service] Message")`
+- Try-Catch für API Calls mit Fallback oder re-throw
+- Graceful Degradation bevorzugen (z.B. Apify Circuit Breaker)
 
-- TypeScript mit strict typing
-- Keine zusätzlichen Kommentare außer wo nötig
-- Deutsche Keywords und Prompts für lokale SEO
-- Elysia t-Validierung für API-Inputs
-- `OptionalNullable` Helper für nullable optionale Felder
+### Code Organization
+- **Services**: Business Logic in `src/services/`
+- **Routes**: API Endpunkte in `src/routes/` (Elysia Router)
+- **Types**: Zentral in `src/types/index.ts`
+- **Constants**: Separate Dateien in `src/constants/` (z.B. Blacklists, Filters)
+- **Utils**: Helper Functions in `src/utils/`
+
+### Comments & Documentation
+- **Minimal Comments**: Code sollte self-explanatory sein
+- **JSDoc für exported Functions**: Nur wenn Verhalten nicht offensichtlich
+- **Deutsche Kommentare**: Für Business Logic (SEO Keywords, lokale Begriffe)
+- **Englische Kommentare**: Für technische Aspekte
 
 ## Umgebungsvariablen
 
@@ -126,11 +131,17 @@ PORT=3000
 
 - Rate Limiting: 3s Pause zwischen DataForSEO Batches
 - Rate Limiting: 2s Pause zwischen SERP Requests
-- Rate Limiting: 1s Pause zwischen Company-Validierung
+- Rate Limiting: 1.5s Pause zwischen Company-Validierung
 - Fallback: Keywords ohne Suchvolumen werden behalten
 - Fallback: Apify wenn Puppeteer scheitert
 - Fallback: Heuristik wenn Company-Validator scheitert
 - Logging auf Deutsch für n8n-Kompatibilität
+
+### Apify Circuit Breaker
+- Detektiert `actor-memory-limit-exceeded` Errors
+- Stoppt automatisch weitere Apify Calls für 60s
+- Verhindert Cascade Failures bei Memory-Limit
+- Apify Memory: 2048MB (muss power of 2 sein: 512, 1024, 2048, 4096)
 
 ## Debugging
 
@@ -139,6 +150,6 @@ PORT=3000
 - `logResponse: true` in `fetchDataForSEO` für API-Debugging
 
 ## OpenAI Models
-- normal Model: gpt-5-mini
-- small Model: gpt-4.1-nano
-- DONT USE gpt-4o!! IT'S DEPRECATED
+- **Normal Model**: `gpt-5-mini` (für komplexe Extraktion und Validierung)
+- **Small Model**: `gpt-4.1-nano` (für einfache Klassifikation)
+- **WICHTIG**: DONT USE gpt-4o!! IT'S DEPRECATED

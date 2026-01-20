@@ -1,10 +1,35 @@
 services:
+  browserless:
+    image: browserless/chrome:latest
+    container_name: browserless
+    restart: unless-stopped
+    environment:
+      - TOKEN=6R0W53R135510
+      - MAX_CONCURRENT_SESSIONS=5
+      - CONNECTION_TIMEOUT=60000
+      - MAX_QUEUE_LENGTH=10
+      - PREBOOT_CHROME=true
+      - ENABLE_DEBUGGER=false
+    ports:
+      - "3100:3000"
+    networks:
+      - regionalflat
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/pressure"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
   rf_workflows:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: rf_workflows
     restart: unless-stopped
+    depends_on:
+      browserless:
+        condition: service_healthy
     environment:
       - PORT=3555
       - OPENAI_API_KEY=${OPENAI_API_KEY}
@@ -13,7 +38,7 @@ services:
       - APIFY_API_TOKEN=${APIFY_API_TOKEN}
       - SUPABASE_URL=${SUPABASE_URL}
       - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
-      - APIFY_API_TOKEN=${APIFY_API_TOKEN}
+      - BROWSERLESS_WS_ENDPOINT=ws://browserless:3000/?token=6R0W53R135510
     networks:
       - regionalflat
 

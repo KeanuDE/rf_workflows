@@ -161,7 +161,8 @@ async function scrapeWithPuppeteer(url: string): Promise<PuppeteerResult> {
  * Scrape Website mit Apify Web Scraper (playwright:firefox)
  * Entspricht dem "Apify1" Node im n8n Workflow
  * 
- * WICHTIG: Nutzt 1536MB (1.5GB) memory limit um Apify's 32GB Free-Tier Limit nicht zu überschreiten
+ * WICHTIG: Nutzt 2048MB (2GB) memory - muss power of 2 sein (512, 1024, 2048, 4096)
+ * Default ist 4096MB, wir nutzen 2048MB um 32GB Free-Tier Limit nicht zu überschreiten
  * Memory wird als options-Parameter (zweiter Parameter von .call()) übergeben, nicht im Input
  * Hat Circuit Breaker für Memory Limit Errors
  */
@@ -179,7 +180,8 @@ async function scrapeWithApify(url: string): Promise<string> {
   try {
     // Web Scraper Actor mit playwright:firefox
     // https://apify.com/apify/web-scraper
-    // HINWEIS: memory 1536MB (1.5GB) reduziert Apify Speicher-Druck (32GB Free Tier Limit)
+    // HINWEIS: memory 2048MB (2GB) - muss power of 2 sein (512, 1024, 2048, 4096)
+    // Reduziert Apify Speicher-Druck (32GB Free Tier Limit, default ist 4096MB)
     const run = await client.actor("apify/web-scraper").call(
       {
         startUrls: [{ url }],
@@ -201,7 +203,7 @@ async function scrapeWithApify(url: string): Promise<string> {
       },
       {
         // Options als zweiter Parameter - memory ist hier!
-        memory: 1536, // 1.5 GB
+        memory: 2048, // 2 GB (muss power of 2 sein!)
       }
     );
 

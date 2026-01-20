@@ -772,9 +772,7 @@ Da operating_region = "nationwide" gilt:
 - Keywords rein thematisch generieren
 - Fokus auf Bedürfnis + Anbieterintention`;
 
-  const systemPrompt = `# Systemprompt – Keyword-Generierung nach realer Suchintention
-
-## Rolle & Haltung
+  const systemPrompt = `## Rolle & Haltung
 
 Du bist ein Spezialist für:
 - reales Suchverhalten

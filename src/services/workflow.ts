@@ -134,7 +134,7 @@ export async function runSEOKeywordWorkflow(
   }
 
   // Step 4: Get search volume for keywords (batched, max 40)
-  const keywordsToCheck = validatedKeywords.slice(0, 40);
+  const keywordsToCheck = validatedKeywords.slice(0, 50);
   console.log("\n[Step 4] Getting search volume for", keywordsToCheck.length, "keywords (location:", finalLocationCode, ")...");
 
   let keywordDataList: KeywordData[] = [];
@@ -142,7 +142,7 @@ export async function runSEOKeywordWorkflow(
     keywordDataList = await getKeywordSearchVolumeBatched(
       keywordsToCheck,
       finalLocationCode,
-      20
+      50
     );
     console.log("Received search volume data for", keywordDataList.length, "keywords");
     
@@ -156,7 +156,7 @@ export async function runSEOKeywordWorkflow(
     console.error("Error getting search volume:", error);
   }
 
-  // Step 5: Sort by search volume and limit to top 5
+  // Step 5: Sort by search volume and limit to top 50
   // Wenn keine Daten von DataForSEO, nutze die Keywords trotzdem
   let sortedKeywords: KeywordData[];
   
@@ -166,7 +166,7 @@ export async function runSEOKeywordWorkflow(
     sortedKeywords = keywordDataList
       .filter((kw) => kw && kw.keyword)
       .sort((a, b) => (b.search_volume || 0) - (a.search_volume || 0))
-      .slice(0, 5);
+      .slice(0, 50);
     console.log("\n[Step 5] Top keywords by volume:", sortedKeywords.length);
     
     // Warnung wenn alle Keywords kein Suchvolumen haben
@@ -177,7 +177,7 @@ export async function runSEOKeywordWorkflow(
   } else {
     // Fallback: Erstelle KeywordData ohne Search Volume
     console.warn("No search volume data available, using keywords without volume data");
-    sortedKeywords = keywordsToCheck.slice(0, 5).map((kw) => ({
+    sortedKeywords = keywordsToCheck.slice(0, 50).map((kw) => ({
       keyword: kw,
       search_volume: 0,
       monthly_searches: [],

@@ -118,6 +118,8 @@ async function scrapeWithPuppeteer(url: string): Promise<PuppeteerResult> {
 /**
  * Scrape Website mit Apify Web Scraper (playwright:firefox)
  * Entspricht dem "Apify1" Node im n8n Workflow
+ * 
+ * WICHTIG: Nutzt minimal memory config (2048MB) um Apify's 32GB Free-Tier Limit nicht zu überschreiten
  */
 async function scrapeWithApify(url: string): Promise<string> {
   const client = getApifyClient();
@@ -126,6 +128,7 @@ async function scrapeWithApify(url: string): Promise<string> {
 
   // Web Scraper Actor mit playwright:firefox
   // https://apify.com/apify/web-scraper
+  // HINWEIS: memory 2048MB reduziert Apify Speicher-Druck (32GB Free Tier Limit)
   const run = await client.actor("apify/web-scraper").call({
     startUrls: [{ url }],
     pageFunction: `
@@ -143,6 +146,7 @@ async function scrapeWithApify(url: string): Promise<string> {
     },
     maxCrawlPages: 1,
     maxCrawlDepth: 0,
+    memory: 2048,
   });
 
   // Get results from the dataset

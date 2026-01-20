@@ -461,10 +461,23 @@ Gebe deine Antwort als JSON aus:
 }
 
 /**
+ * Cache für bereits validierte Domains um Apify-Calls zu sparen
+ */
+const companyValidationCache = new Map<string, boolean>();
+
+/**
  * Prüft ob eine URL eine einzelne Firma oder ein Branchenportal ist
  * Nutzt KI um den Content zu analysieren
+ * Ergebnis wird gecacht um Duplizierung zu vermeiden
  */
 export async function isSingleCompanyWebsite(url: string): Promise<boolean> {
+  // Check cache first
+  const cached = companyValidationCache.get(url);
+  if (cached !== undefined) {
+    console.log(`[CompanyValidator] Cache hit for "${url}": ${cached}`);
+    return cached;
+  }
+
   console.log(`[CompanyValidator] Checking if "${url}" is a single company website...`);
 
   try {
@@ -504,17 +517,22 @@ Antworte NUR mit gültigem JSON ohne weitere Erklärungen:
       return isCompanyByHeuristics(url);
     }
 
-    const parsed = JSON.parse(content);
-    const isSingle = parsed.isSingleCompany === true;
-    
-    console.log(`[CompanyValidator] Result for ${url}: isSingleCompany=${isSingle}, reason=${parsed.reason}`);
-    return isSingle;
+     const parsed = JSON.parse(content);
+     const isSingle = parsed.isSingleCompany === true;
+     
+     // Cache result
+     companyValidationCache.set(url, isSingle);
+     console.log(`[CompanyValidator] Result for ${url}: isSingleCompany=${isSingle}, reason=${parsed.reason}`);
+     return isSingle;
 
-  } catch (error) {
-    console.error(`[CompanyValidator] Error checking ${url}:`, error);
-    return isCompanyByHeuristics(url);
-  }
-}
+   } catch (error) {
+     console.error(`[CompanyValidator] Error checking ${url}:`, error);
+     const result = isCompanyByHeuristics(url);
+     // Cache fallback result too
+     companyValidationCache.set(url, result);
+     return result;
+   }
+ }
 
 /**
  * Fallback-Heuristik wenn KI nicht verfügbar
@@ -564,46 +582,34 @@ function isCompanyByHeuristics(url: string): boolean {
 }
 
 /**
- * Validiert mehrere Domains mit Batch-Parallelisierung
+ * Validiert mehrere Domains SEQUENZIELL (nicht parallel!)
  * Gibt zurück welche Domains echte Unternehmen sind
+ * 
+ * WICHTIG: Sequenziell statt Batch-Parallel um Apify's 32GB Memory-Limit nicht zu überschreiten
+ * Parallel Apify Runs können schnell zu Memory-Limits führen (multiple 4GB jobs = 12GB+ gleichzeitig)
  */
 export async function validateCompanyDomains(
   domains: Array<{ domain: string; rank: number }>
 ): Promise<Array<{ domain: string; rank: number }>> {
-  console.log(`[CompanyValidator] Validating ${domains.length} domains...`);
+  console.log(`[CompanyValidator] Validating ${domains.length} domains sequentially...`);
 
   if (domains.length === 0) {
     return [];
   }
 
-  // Process domains in batches of 3 for better performance while respecting rate limits
-  const BATCH_SIZE = 3;
   const validCompanies: Array<{ domain: string; rank: number }> = [];
 
-  for (let i = 0; i < domains.length; i += BATCH_SIZE) {
-    const batch = domains.slice(i, i + BATCH_SIZE);
+  // Process sequentially to avoid Apify memory limits
+  for (const item of domains) {
+    // Wait 1.5s between requests to respect rate limits
+    await new Promise(resolve => setTimeout(resolve, 1500));
     
-    // Process batch in parallel with staggered start times
-    const batchPromises = batch.map(async (item, index) => {
-      // Stagger by 400ms to avoid hitting rate limits
-      await new Promise(resolve => setTimeout(resolve, index * 400));
-      
-      const isCompany = await isSingleCompanyWebsite(item.domain);
-      
-      if (isCompany) {
-        return item;
-      } else {
-        console.log(`[CompanyValidator] Filtered out portal: ${item.domain}`);
-        return null;
-      }
-    });
-
-    const batchResults = await Promise.all(batchPromises);
-    validCompanies.push(...batchResults.filter((item): item is { domain: string; rank: number } => item !== null));
-
-    // Wait 1s between batches
-    if (i + BATCH_SIZE < domains.length) {
-      await new Promise(resolve => setTimeout(resolve, 1000));
+    const isCompany = await isSingleCompanyWebsite(item.domain);
+    
+    if (isCompany) {
+      validCompanies.push(item);
+    } else {
+      console.log(`[CompanyValidator] Filtered out portal: ${item.domain}`);
     }
   }
 

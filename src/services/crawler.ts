@@ -2,6 +2,7 @@ import puppeteer from "puppeteer-core";
 import { ApifyClient } from "apify-client";
 import OpenAI from "openai";
 import type { CrawlerInput, CrawlerOutput } from "../types";
+import { htmlToText } from "../utils/htmlToText";
 
 /**
  * Crawler Tool Service
@@ -47,51 +48,6 @@ function getOpenAI(): OpenAI {
     throw new Error("OPENAI_API_KEY must be set in environment variables");
   }
   return new OpenAI({ apiKey });
-}
-
-/**
- * HTML zu Markdown/Text konvertieren
- * Entspricht dem "Markdown" Node im n8n Workflow
- */
-function htmlToText(html: string): string {
-  return html
-    // Script und Style Tags entfernen
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
-    .replace(/<noscript[^>]*>[\s\S]*?<\/noscript>/gi, "")
-    // Überschriften zu Markdown
-    .replace(/<h1[^>]*>([\s\S]*?)<\/h1>/gi, "\n# $1\n")
-    .replace(/<h2[^>]*>([\s\S]*?)<\/h2>/gi, "\n## $1\n")
-    .replace(/<h3[^>]*>([\s\S]*?)<\/h3>/gi, "\n### $1\n")
-    .replace(/<h4[^>]*>([\s\S]*?)<\/h4>/gi, "\n#### $1\n")
-    // Paragraphen
-    .replace(/<p[^>]*>([\s\S]*?)<\/p>/gi, "\n$1\n")
-    // Listen
-    .replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, "- $1\n")
-    // Links
-    .replace(/<a[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi, "[$2]($1)")
-    // Zeilenumbrüche
-    .replace(/<br\s*\/?>/gi, "\n")
-    // Restliche HTML Tags entfernen
-    .replace(/<[^>]+>/g, " ")
-    // HTML Entities dekodieren
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&auml;/g, "ä")
-    .replace(/&ouml;/g, "ö")
-    .replace(/&uuml;/g, "ü")
-    .replace(/&Auml;/g, "Ä")
-    .replace(/&Ouml;/g, "Ö")
-    .replace(/&Uuml;/g, "Ü")
-    .replace(/&szlig;/g, "ß")
-    // Mehrfache Leerzeichen und Newlines reduzieren
-    .replace(/[ \t]+/g, " ")
-    .replace(/\n\s*\n/g, "\n\n")
-    .trim();
 }
 
 /**

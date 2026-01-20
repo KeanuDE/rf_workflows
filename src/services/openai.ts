@@ -2,6 +2,17 @@ import OpenAI from "openai";
 import type { LocationFinderOutput, WorkflowInput, CrawlerInput, CrawlerOutput } from "../types";
 import { crawlWebsite } from "./crawler";
 import { getSERPResults } from "./dataforseo";
+import { violatesHardFilter, INTENT_HARD_FILTERS } from "../constants/intentHardFilters";
+
+function applyHardFilters(keywords: string[]): string[] {
+  return keywords.filter(kw => {
+    if (violatesHardFilter(kw)) {
+      console.log(`[IntentKeywords] Hard-filtered: "${kw}"`);
+      return false;
+    }
+    return true;
+  });
+}
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -636,105 +647,6 @@ export interface IntentKeywordInput {
  * Wird VOR und NACH der KI-Generierung angewendet
  * 
  * Format: Reguläre Ausdrücke für Wortgrenzen-basiertes Matching
- */
-const INTENT_HARD_FILTERS: RegExp[] = [
-  // Jobs/Karriere/Ausbildung
-  /\bjobs?\b/i,
-  /\bkarriere\b/i,
-  /\bausbildung\b/i,
-  /\bstudium\b/i,
-  /\buniversität\b/i,
-  /\buni\b/i,
-  /\bhochschule\b/i,
-  /\bpraktikum\b/i,
-  /\bwerkstudent/i,
-  /\bstellenangebot/i,
-  /\bgehalt\b/i,
-  /\bbewerbung schreiben\b/i,
-  /\blebenslauf\b/i,
-  
-  // Shop/E-Commerce (nicht "buchen" - das ist transaktional!)
-  /\bkaufen\b/i,
-  /\bbestellen\b/i,
-  /\bshop\b/i,
-  /\bamazon\b/i,
-  /\bebay\b/i,
-  /\bthomann\b/i,
-  /\bmediamarkt\b/i,
-  /\bsaturn\b/i,
-  /\botto\b/i,
-  /\bzalando\b/i,
-  /\bonline shop\b/i,
-  /\bversandkostenfrei\b/i,
-  /\brabatt\b/i,
-  /\bgutschein\b/i,
-  /\bangebot des tages\b/i,
-  
-  // Info/Research/Definition
-  /\bwas ist\b/i,
-  /\bdefinition\b/i,
-  /\bwikipedia\b/i,
-  /\bwiki\b/i,
-  /\berklärt\b/i,
-  /\btutorial\b/i,
-  /\blernen\b/i,
-  /\bkurs kostenlos\b/i,
-  /\byoutube\b/i,
-  /\bvideo anleitung\b/i,
-  /\bpdf download\b/i,
-  /\bbücher?\b/i, // "buch" oder "bücher" als ganzes Wort, nicht "buchen"
-  /\bratgeber\b/i,
-  
-  // Vergleiche/Rankings
-  /\btest\b/i,
-  /\btestsieger\b/i,
-  /\bstiftung warentest\b/i,
-  /\branking\b/i,
-  /\btop 10\b/i,
-  /\bbeste[rns]?\b/i,
-  /\bvergleich \d{4}\b/i,
-  /\bvs\b/i,
-  
-  // Portale
-  /\bcheck24\b/i,
-  /\bmyhammer\b/i,
-  /\bgelbe seiten\b/i,
-  /\byelp\b/i,
-  /\b11880\b/i,
-  /\bwer liefert was\b/i,
-];
-
-/**
- * Prüft ob ein Keyword Hard-Filter verletzt
- */
-function violatesHardFilter(keyword: string): boolean {
-  for (const pattern of INTENT_HARD_FILTERS) {
-    if (pattern.test(keyword)) {
-      return true;
-    }
-  }
-  
-  return false;
-}
-
-/**
- * Filtert Keywords nach Hard-Filter
- */
-function applyHardFilters(keywords: string[]): string[] {
-  return keywords.filter(kw => {
-    const violates = violatesHardFilter(kw);
-    if (violates) {
-      console.log(`[IntentKeywords] Hard-filtered: "${kw}"`);
-    }
-    return !violates;
-  });
-}
-
-/**
- * Generiert Intent-basierte Keywords nach dem neuen Prompt-Design
- * Ersetzt die alten extractKeywordsFromDescription/Services Funktionen
- * 
- * Prompt-Logik: "Wie würde ein Kunde nach diesem Anbieter suchen?"
  */
 export async function generateIntentKeywords(
   input: IntentKeywordInput

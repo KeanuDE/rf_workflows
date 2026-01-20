@@ -161,7 +161,8 @@ async function scrapeWithPuppeteer(url: string): Promise<PuppeteerResult> {
  * Scrape Website mit Apify Web Scraper (playwright:firefox)
  * Entspricht dem "Apify1" Node im n8n Workflow
  * 
- * WICHTIG: Nutzt minimal memory config (2048MB) um Apify's 32GB Free-Tier Limit nicht zu überschreiten
+ * WICHTIG: Nutzt 1536MB (1.5GB) memory limit um Apify's 32GB Free-Tier Limit nicht zu überschreiten
+ * Memory wird als options-Parameter (zweiter Parameter von .call()) übergeben, nicht im Input
  * Hat Circuit Breaker für Memory Limit Errors
  */
 async function scrapeWithApify(url: string): Promise<string> {
@@ -178,26 +179,31 @@ async function scrapeWithApify(url: string): Promise<string> {
   try {
     // Web Scraper Actor mit playwright:firefox
     // https://apify.com/apify/web-scraper
-    // HINWEIS: memory 2048MB reduziert Apify Speicher-Druck (32GB Free Tier Limit)
-    const run = await client.actor("apify/web-scraper").call({
-      startUrls: [{ url }],
-      pageFunction: `
-        async function pageFunction(context) {
-          const $ = context.jQuery;
-          const html = $('body').html() || '';
-          return {
-            url: context.request.url,
-            html: html
-          };
-        }
-      `,
-      proxyConfiguration: {
-        useApifyProxy: true,
+    // HINWEIS: memory 1536MB (1.5GB) reduziert Apify Speicher-Druck (32GB Free Tier Limit)
+    const run = await client.actor("apify/web-scraper").call(
+      {
+        startUrls: [{ url }],
+        pageFunction: `
+          async function pageFunction(context) {
+            const $ = context.jQuery;
+            const html = $('body').html() || '';
+            return {
+              url: context.request.url,
+              html: html
+            };
+          }
+        `,
+        proxyConfiguration: {
+          useApifyProxy: true,
+        },
+        maxCrawlPages: 1,
+        maxCrawlDepth: 0,
       },
-      maxCrawlPages: 1,
-      maxCrawlDepth: 0,
-      memory: 2048,
-    });
+      {
+        // Options als zweiter Parameter - memory ist hier!
+        memory: 1536, // 1.5 GB
+      }
+    );
 
     // Get results from the dataset
     const { items } = await client.dataset(run.defaultDatasetId).listItems();

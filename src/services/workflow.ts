@@ -3,6 +3,7 @@ import type {
   WorkflowOutput,
   KeywordResult,
   KeywordData,
+  EntityType,
 } from "../types";
 import {
   findLocation,
@@ -16,8 +17,10 @@ import {
   generateIntentKeywords,
   selectTopKeywordsForSERP,
   validateCompanyDomains,
+  detectCustomerEntityType,
   type IntentKeywordInput,
 } from "./openai";
+import { findAndAnalyzeCompetitors } from "./competitorFinder";
 import {
   isBlacklistedDomain,
   hasAggregatorPattern,
@@ -240,10 +243,42 @@ export async function runSEOKeywordWorkflow(
     sortedKeywords.map((kw) => processSERPKeyword(kw, finalLocationCode, input.website))
   );
 
+  // Step 6: Competitor Analysis mit Labs API + Social Media
+  console.log("\n[Step 6] Analyzing competitors with Labs API + Social Media...");
+  let competitors = undefined;
+  
+  try {
+    // Erkenne Kunden-Entity-Typ aus Website-Content
+    const websiteContent = input.description || "";
+    const customerEntityType: EntityType = await detectCustomerEntityType(
+      websiteContent,
+      input.description
+    );
+    console.log(`Customer entity type: ${customerEntityType}`);
+
+    // Finde und analysiere Wettbewerber
+    competitors = await findAndAnalyzeCompetitors(
+      validatedKeywords.slice(0, 50), // Top 50 Keywords für Competitor Analysis
+      input.website,
+      locationInfo.genre,
+      customerEntityType,
+      input.operating_region || "regional",
+      locationInfo.location,
+      locationInfo.fullLocation,
+      15 // Max 15 Wettbewerber im Ergebnis
+    );
+
+    console.log(`Found ${competitors.length} relevant competitors`);
+  } catch (error) {
+    console.error("[Step 6] Competitor analysis failed:", error);
+    // Workflow läuft weiter ohne Competitor-Daten
+  }
+
   const output: WorkflowOutput = {
     keywords: keywordResults,
     location: locationInfo.location,
     genre: locationInfo.genre,
+    competitors: competitors,
   };
 
   console.log("\n" + "=".repeat(60));

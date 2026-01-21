@@ -3,7 +3,11 @@ import type {
   DataForSEOLocationResponse,
   DataForSEOSearchVolumeResponse,
   DataForSEOSERPResponse,
+  DataForSEOLabsSERPCompetitorsResponse,
+  DataForSEOLabsCompetitorsDomainResponse,
   KeywordData,
+  SERPCompetitorItem,
+  CompetitorDomainItem,
 } from "../types";
 
 const DATAFORSEO_BASE_URL = "https://api.dataforseo.com/v3";
@@ -267,4 +271,241 @@ export async function getKeywordSearchVolumeBatched(
 
   console.log(`[DataForSEO] Total results: ${results.length}`);
   return results;
+}
+
+// ============================================================================
+// DataForSEO Labs API - Competitor Research
+// ============================================================================
+
+/**
+ * SERP Competitors - Findet echte Wettbewerber basierend auf Keywords
+ *
+ * Endpoint: /dataforseo_labs/google/serp_competitors/live
+ *
+ * Vorteile gegenüber Standard SERP API:
+ * - Batch-Verarbeitung: Bis zu 200 Keywords in einem Request
+ * - Vorselektiert echte Wettbewerber (keine Portale)
+ * - Liefert Traffic-Metriken und Ranking-Daten
+ *
+ * @param keywords Array von Keywords (max 200)
+ * @param locationCode DataForSEO Location Code
+ * @param limit Max Anzahl der Wettbewerber (default 30)
+ */
+export async function getSERPCompetitors(
+  keywords: string[],
+  locationCode: number,
+  limit: number = 30
+): Promise<SERPCompetitorItem[]> {
+  console.log(
+    `[DataForSEO Labs] Getting SERP Competitors for ${keywords.length} keywords (location: ${locationCode})`
+  );
+  console.log(`[DataForSEO Labs] Keywords sample:`, keywords.slice(0, 5));
+
+  const endpoint = "/dataforseo_labs/google/serp_competitors/live";
+
+  // Max 200 Keywords pro Request (API Limit)
+  const keywordsToUse = keywords.slice(0, 200);
+
+  const body = [
+    {
+      keywords: keywordsToUse,
+      location_code: locationCode,
+      language_code: "de",
+      item_types: ["organic"], // Nur organische Ergebnisse, keine Ads
+      limit: limit,
+      // Optional: Filter für Mindest-Traffic
+      // filters: [["full_domain_metrics.organic.count", ">", 5]],
+    },
+  ];
+
+  try {
+    const response =
+      await fetchDataForSEO<DataForSEOLabsSERPCompetitorsResponse>(
+        endpoint,
+        "POST",
+        body,
+        true
+      );
+
+    const result = response.tasks?.[0]?.result?.[0];
+
+    if (!result || !result.items) {
+      console.warn(`[DataForSEO Labs] No competitors found`);
+      return [];
+    }
+
+    console.log(
+      `[DataForSEO Labs] Found ${result.items.length} competitors (total: ${result.total_count})`
+    );
+
+    // Log Top 5 Wettbewerber
+    result.items.slice(0, 5).forEach((item, i) => {
+      console.log(
+        `[DataForSEO Labs]   ${i + 1}. ${item.domain} - Traffic: ${item.full_domain_metrics?.organic?.etv || 0}, Keywords: ${item.full_domain_metrics?.organic?.count || 0}`
+      );
+    });
+
+    return result.items;
+  } catch (error) {
+    console.error(`[DataForSEO Labs] Error getting SERP competitors:`, error);
+    return [];
+  }
+}
+
+/**
+ * Competitors Domain - Findet ähnliche Domains zur Kundendomain
+ *
+ * Endpoint: /dataforseo_labs/google/competitors_domain/live
+ *
+ * Nutzen:
+ * - Findet Domains mit ähnlichem Keyword-Profil
+ * - Liefert Traffic-Overlap und Ranking-Vergleich
+ * - Ergänzend zu SERP Competitors für umfassendere Analyse
+ *
+ * @param targetDomain Die Domain des Kunden (ohne https://)
+ * @param locationCode DataForSEO Location Code
+ * @param limit Max Anzahl der Wettbewerber (default 20)
+ */
+export async function getCompetitorsDomain(
+  targetDomain: string,
+  locationCode: number,
+  limit: number = 20
+): Promise<CompetitorDomainItem[]> {
+  console.log(
+    `[DataForSEO Labs] Getting Domain Competitors for: ${targetDomain} (location: ${locationCode})`
+  );
+
+  const endpoint = "/dataforseo_labs/google/competitors_domain/live";
+
+  // Domain ohne Protokoll
+  const cleanDomain = targetDomain
+    .replace(/^https?:\/\//, "")
+    .replace(/\/$/, "");
+
+  const body = [
+    {
+      target: cleanDomain,
+      location_code: locationCode,
+      language_code: "de",
+      limit: limit,
+      // Optional: Nur Domains mit signifikantem Traffic
+      // filters: [["full_domain_metrics.organic.etv", ">", 100]],
+    },
+  ];
+
+  try {
+    const response =
+      await fetchDataForSEO<DataForSEOLabsCompetitorsDomainResponse>(
+        endpoint,
+        "POST",
+        body,
+        true
+      );
+
+    const result = response.tasks?.[0]?.result?.[0];
+
+    if (!result || !result.items) {
+      console.warn(`[DataForSEO Labs] No domain competitors found`);
+      return [];
+    }
+
+    console.log(
+      `[DataForSEO Labs] Found ${result.items.length} domain competitors (total: ${result.total_count})`
+    );
+
+    // Log Top 5 Domain-Wettbewerber
+    result.items.slice(0, 5).forEach((item, i) => {
+      console.log(
+        `[DataForSEO Labs]   ${i + 1}. ${item.domain} - Intersections: ${item.intersections}, Traffic: ${item.full_domain_metrics?.organic?.etv || 0}`
+      );
+    });
+
+    return result.items;
+  } catch (error) {
+    console.error(`[DataForSEO Labs] Error getting domain competitors:`, error);
+    return [];
+  }
+}
+
+/**
+ * Kombiniert SERP Competitors und Domain Competitors für umfassende Wettbewerbsanalyse
+ *
+ * Strategie:
+ * 1. SERP Competitors für Keyword-basierte Wettbewerber
+ * 2. Domain Competitors für ähnliche Domains
+ * 3. Merge und Deduplizierung
+ * 4. Sortierung nach Traffic
+ *
+ * @param keywords Keywords des Kunden
+ * @param targetDomain Domain des Kunden
+ * @param locationCode DataForSEO Location Code
+ * @param maxCompetitors Max Anzahl der Wettbewerber (default 30)
+ */
+export async function getCombinedCompetitors(
+  keywords: string[],
+  targetDomain: string,
+  locationCode: number,
+  maxCompetitors: number = 30
+): Promise<SERPCompetitorItem[]> {
+  console.log(
+    `[DataForSEO Labs] Getting combined competitors for ${keywords.length} keywords + domain ${targetDomain}`
+  );
+
+  const competitorMap = new Map<string, SERPCompetitorItem>();
+
+  // 1. SERP Competitors (Keyword-basiert)
+  const serpCompetitors = await getSERPCompetitors(
+    keywords,
+    locationCode,
+    maxCompetitors
+  );
+
+  for (const comp of serpCompetitors) {
+    competitorMap.set(comp.domain, comp);
+  }
+
+  // Rate Limiting zwischen API Calls
+  await new Promise((resolve) => setTimeout(resolve, 2000));
+
+  // 2. Domain Competitors (ähnliche Domains)
+  const domainCompetitors = await getCompetitorsDomain(
+    targetDomain,
+    locationCode,
+    20
+  );
+
+  // Merge: Domain Competitors als SERPCompetitorItem konvertieren
+  for (const domComp of domainCompetitors) {
+    if (!competitorMap.has(domComp.domain)) {
+      // Konvertiere CompetitorDomainItem zu SERPCompetitorItem-ähnlicher Struktur
+      const asSerp: SERPCompetitorItem = {
+        domain: domComp.domain,
+        avg_position: domComp.avg_position,
+        sum_position: domComp.sum_position,
+        intersections: domComp.intersections,
+        full_domain_metrics: domComp.full_domain_metrics,
+        competitor_metrics: {
+          organic: {
+            etv: domComp.full_domain_metrics?.organic?.etv || 0,
+            count: domComp.full_domain_metrics?.organic?.count || 0,
+            avg_position: domComp.avg_position,
+          },
+        },
+      };
+      competitorMap.set(domComp.domain, asSerp);
+    }
+  }
+
+  // 3. Sortiere nach Traffic (ETV)
+  const combined = [...competitorMap.values()].sort((a, b) => {
+    const trafficA = a.full_domain_metrics?.organic?.etv || 0;
+    const trafficB = b.full_domain_metrics?.organic?.etv || 0;
+    return trafficB - trafficA;
+  });
+
+  console.log(
+    `[DataForSEO Labs] Combined: ${combined.length} unique competitors`
+  );
+
+  return combined.slice(0, maxCompetitors);
 }

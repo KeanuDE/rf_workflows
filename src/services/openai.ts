@@ -1,5 +1,12 @@
 import OpenAI from "openai";
-import type { LocationFinderOutput, WorkflowInput, CrawlerInput, CrawlerOutput } from "../types";
+import type {
+  LocationFinderOutput,
+  WorkflowInput,
+  CrawlerInput,
+  CrawlerOutput,
+  EntityClassification,
+  EntityType,
+} from "../types";
 import { crawlWebsite, crawlWebsiteLightweight } from "./crawler";
 import { getSERPResults } from "./dataforseo";
 import { violatesHardFilter, INTENT_HARD_FILTERS } from "../constants/intentHardFilters";
@@ -466,6 +473,11 @@ Gebe deine Antwort als JSON aus:
 const companyValidationCache = new Map<string, boolean>();
 
 /**
+ * Cache für Entity-Klassifikation (inkl. Branche und Typ)
+ */
+const entityClassificationCache = new Map<string, EntityClassification>();
+
+/**
  * Prüft ob eine URL eine einzelne Firma oder ein Branchenportal ist
  * Nutzt KI um den Content zu analysieren
  * Ergebnis wird gecacht um Duplizierung zu vermeiden
@@ -617,6 +629,283 @@ export async function validateCompanyDomains(
 
   console.log(`[CompanyValidator] Validated: ${validCompanies.length}/${domains.length} are companies`);
   return validCompanies;
+}
+
+// ============================================================================
+// ERWEITERTE ENTITY-KLASSIFIKATION (NEU)
+// ============================================================================
+
+/**
+ * Klassifiziert einen Wettbewerber nach Entity-Typ und Branchenrelevanz
+ *
+ * Erweiterte Version von isSingleCompanyWebsite() mit:
+ * - Branchenerkennung des Wettbewerbers
+ * - Vergleich mit Kundenbranche
+ * - Dienstleister vs. Händler Unterscheidung
+ * - Confidence Score
+ *
+ * @param url Die URL des Wettbewerbers
+ * @param customerGenre Die Branche des Kunden (z.B. "Heizung & Sanitär")
+ * @param customerEntityType Der Geschäftstyp des Kunden
+ */
+export async function classifyCompetitorEntity(
+  url: string,
+  customerGenre: string,
+  customerEntityType: EntityType
+): Promise<EntityClassification> {
+  // Cache-Key inkludiert Kundenkontext
+  const cacheKey = `${url}|${customerGenre}|${customerEntityType}`;
+
+  const cached = entityClassificationCache.get(cacheKey);
+  if (cached) {
+    console.log(`[EntityClassifier] Cache hit for "${url}"`);
+    return cached;
+  }
+
+  console.log(`[EntityClassifier] Classifying: ${url} (customer: ${customerGenre}, ${customerEntityType})`);
+
+  try {
+    // Lightweight Crawl der Wettbewerber-Website
+    const crawlResult = await crawlWebsiteLightweight({
+      url,
+      what: "Analysiere: 1) Ist dies ein einzelnes Unternehmen oder Portal? 2) Bietet es Dienstleistungen oder verkauft es Produkte? 3) Welche Branche? 4) Impressum/Kontakt vorhanden?",
+    });
+
+    if (!crawlResult.content || crawlResult.content.trim().length === 0) {
+      console.warn(`[EntityClassifier] No content for ${url}, using fallback`);
+      return createFallbackClassification(url, customerGenre, customerEntityType);
+    }
+
+    // KI-Klassifikation mit erweitertem Prompt
+    const systemPrompt = `Du bist ein SEO- und Wettbewerbsanalyst. Analysiere die Website und klassifiziere sie.
+
+KUNDENKONTEXT:
+- Branche des Kunden: ${customerGenre}
+- Geschäftstyp des Kunden: ${customerEntityType === "dienstleister" ? "Dienstleister (bietet Services)" : customerEntityType === "haendler" ? "Händler (verkauft Produkte)" : "Hybrid (beides)"}
+
+ANALYSIERE FOLGENDES:
+
+1. UNTERNEHMENSART:
+   - EINZELUNTERNEHMEN: Eine Firma mit eigenem Impressum, Team, Projekten
+   - PORTAL/VERZEICHNIS: Viele verschiedene Firmen gelistet, "Partner werden", Städtelisten
+
+2. GESCHÄFTSTYP:
+   - DIENSTLEISTER: Bietet Services an (Installation, Beratung, Reparatur, etc.)
+   - HÄNDLER: Verkauft Produkte (Online-Shop, Warenkorb, Preislisten)
+   - HYBRID: Beides (z.B. Fachhandel mit Montageservice)
+
+3. BRANCHENRELEVANZ zum Kunden:
+   - Kunde ist "${customerGenre}"
+   - Ist dieser Wettbewerber in derselben oder verwandten Branche?
+   - IRRELEVANT wenn:
+     * "Maler" vs "Autolackierer" (andere Branche trotz ähnlicher Worte)
+     * "Heizungsbauer" vs "Baumarkt" (Händler, kein Dienstleister)
+     * "IT-Dienstleister" vs "Software-Hersteller" (anderes Geschäftsmodell)
+
+4. CONFIDENCE:
+   - 0.9+ wenn Impressum, klare Leistungen, eindeutige Signale
+   - 0.7-0.9 wenn wahrscheinlich, aber nicht 100% sicher
+   - 0.5-0.7 wenn unklar oder gemischte Signale
+   - <0.5 wenn Website nicht aussagekräftig
+
+Antworte NUR mit gültigem JSON:
+{
+  "isCompany": true/false,
+  "entityType": "dienstleister" | "haendler" | "hybrid" | "unknown",
+  "detectedGenre": "Erkannte Branche des Wettbewerbers",
+  "isRelevantCompetitor": true/false,
+  "confidence": 0.0-1.0,
+  "reason": "Kurze Begründung (max 50 Wörter)"
+}`;
+
+    const response = await openai.chat.completions.create({
+      model: SMALL_MODEL, // gpt-4.1-nano für Kosten-Effizienz
+      messages: [
+        { role: "system", content: systemPrompt },
+        {
+          role: "user",
+          content: `Analysiere diese Website:\n\nURL: ${url}\n\nContent:\n${crawlResult.content.substring(0, 5000)}`,
+        },
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.1, // Niedrige Temperatur für konsistente Ergebnisse
+    });
+
+    const content = response.choices[0]?.message?.content;
+    if (!content) {
+      console.warn(`[EntityClassifier] No AI response for ${url}`);
+      return createFallbackClassification(url, customerGenre, customerEntityType);
+    }
+
+    const parsed = JSON.parse(content) as EntityClassification;
+
+    // Validiere und normalisiere
+    const result: EntityClassification = {
+      isCompany: parsed.isCompany === true,
+      entityType: validateEntityType(parsed.entityType),
+      detectedGenre: parsed.detectedGenre || "unbekannt",
+      isRelevantCompetitor: parsed.isRelevantCompetitor === true,
+      confidence: typeof parsed.confidence === "number" ? Math.min(1, Math.max(0, parsed.confidence)) : 0.5,
+      reason: parsed.reason || "Keine Begründung",
+    };
+
+    // Cache speichern
+    entityClassificationCache.set(cacheKey, result);
+
+    console.log(
+      `[EntityClassifier] ${url}: isCompany=${result.isCompany}, type=${result.entityType}, genre="${result.detectedGenre}", relevant=${result.isRelevantCompetitor}, confidence=${result.confidence.toFixed(2)}`
+    );
+
+    return result;
+  } catch (error) {
+    console.error(`[EntityClassifier] Error classifying ${url}:`, error);
+    return createFallbackClassification(url, customerGenre, customerEntityType);
+  }
+}
+
+/**
+ * Validiert und normalisiert den EntityType
+ */
+function validateEntityType(type: string | undefined): EntityType {
+  const validTypes: EntityType[] = ["dienstleister", "haendler", "hybrid", "unknown"];
+  if (type && validTypes.includes(type as EntityType)) {
+    return type as EntityType;
+  }
+  return "unknown";
+}
+
+/**
+ * Erstellt eine Fallback-Klassifikation basierend auf Heuristiken
+ */
+function createFallbackClassification(
+  url: string,
+  customerGenre: string,
+  customerEntityType: EntityType
+): EntityClassification {
+  try {
+    const parsedUrl = new URL(url);
+    const hostname = parsedUrl.hostname.toLowerCase().replace(/^www\./, "");
+
+    // Portal-Indikatoren (schlecht)
+    const portalPatterns = [
+      /finder$/,
+      /vergleich$/,
+      /check24/,
+      /myhammer/,
+      /wer-liefert-was/,
+      /gelbeseiten/,
+      /yelp/,
+      /-portal/,
+      /verzeichnis/,
+    ];
+
+    // Händler-Indikatoren
+    const haendlerPatterns = [
+      /shop/,
+      /store/,
+      /markt/,
+      /handel/,
+      /amazon/,
+      /ebay/,
+      /otto/,
+      /hornbach/,
+      /obi\./,
+      /bauhaus/,
+    ];
+
+    // Portal-Check
+    for (const pattern of portalPatterns) {
+      if (pattern.test(hostname)) {
+        return {
+          isCompany: false,
+          entityType: "unknown",
+          detectedGenre: "Portal/Verzeichnis",
+          isRelevantCompetitor: false,
+          confidence: 0.7,
+          reason: `Domain-Muster "${pattern}" deutet auf Portal hin`,
+        };
+      }
+    }
+
+    // Händler-Check (wenn Kunde Dienstleister ist)
+    if (customerEntityType === "dienstleister") {
+      for (const pattern of haendlerPatterns) {
+        if (pattern.test(hostname)) {
+          return {
+            isCompany: true,
+            entityType: "haendler",
+            detectedGenre: "Einzelhandel",
+            isRelevantCompetitor: false,
+            confidence: 0.6,
+            reason: `Domain-Muster "${pattern}" deutet auf Händler hin, Kunde ist Dienstleister`,
+          };
+        }
+      }
+    }
+
+    // Default: Als potenziell relevant markieren, aber mit niedriger Confidence
+    return {
+      isCompany: true,
+      entityType: "unknown",
+      detectedGenre: "unbekannt",
+      isRelevantCompetitor: true,
+      confidence: 0.4,
+      reason: "Fallback-Heuristik, keine eindeutigen Signale",
+    };
+  } catch {
+    return {
+      isCompany: false,
+      entityType: "unknown",
+      detectedGenre: "unbekannt",
+      isRelevantCompetitor: false,
+      confidence: 0.2,
+      reason: "URL-Parsing fehlgeschlagen",
+    };
+  }
+}
+
+/**
+ * Erkennt den Entity-Typ des Kunden aus seiner Website
+ * Wird in findLocationAndGenre() integriert
+ */
+export async function detectCustomerEntityType(
+  websiteContent: string,
+  description: string
+): Promise<EntityType> {
+  const systemPrompt = `Analysiere ob dieses Unternehmen ein DIENSTLEISTER (bietet Services/Arbeit an) oder ein HÄNDLER (verkauft Produkte) ist.
+
+Beispiele:
+- DIENSTLEISTER: Handwerker, Berater, Agenturen, IT-Support, Installationsfirmen, Maler, Elektriker
+- HÄNDLER: Shops, Fachhandel, Großhandel, Online-Versand, Baumärkte
+- HYBRID: Fachhandel mit Montageservice, Autohäuser mit Werkstatt
+
+Antworte NUR mit einem Wort: "dienstleister", "haendler" oder "hybrid"`;
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: SMALL_MODEL,
+      messages: [
+        { role: "system", content: systemPrompt },
+        {
+          role: "user",
+          content: `Website-Inhalt:\n${websiteContent.substring(0, 3000)}\n\nFirmenbeschreibung:\n${description}`,
+        },
+      ],
+      temperature: 0.1,
+    });
+
+    const content = response.choices[0]?.message?.content?.toLowerCase().trim();
+
+    if (content === "dienstleister") return "dienstleister";
+    if (content === "haendler") return "haendler";
+    if (content === "hybrid") return "hybrid";
+
+    console.warn(`[EntityDetection] Unexpected response: "${content}", defaulting to dienstleister`);
+    return "dienstleister";
+  } catch (error) {
+    console.error("[EntityDetection] Error:", error);
+    return "dienstleister"; // Sicherer Default
+  }
 }
 
 // ============================================================================

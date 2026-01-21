@@ -112,8 +112,8 @@ function isForbiddenResponse(content: string): boolean {
  * Mit Retry-Logic für ECONNRESET und Connection-Errors
  */
 async function scrapeWithPuppeteer(url: string, retryCount = 0): Promise<PuppeteerResult> {
-  const MAX_RETRIES = 2;
-  const RETRY_DELAY = 1000; // 1 second
+  const MAX_RETRIES = 3;
+  const RETRY_DELAY = 2000; // 2 seconds base delay
   
   console.log(`[Crawler] Scraping with Puppeteer (browserless): ${url}${retryCount > 0 ? ` (retry ${retryCount}/${MAX_RETRIES})` : ""}`);
   
@@ -127,7 +127,7 @@ async function scrapeWithPuppeteer(url: string, retryCount = 0): Promise<Puppete
         browserWSEndpoint: BROWSERLESS_WS_ENDPOINT,
       }),
       new Promise<never>((_, reject) => 
-        setTimeout(() => reject(new Error("Browser connection timeout after 10s")), 10000)
+        setTimeout(() => reject(new Error("Browser connection timeout after 15s")), 15000)
       )
     ]);
 
@@ -166,8 +166,10 @@ async function scrapeWithPuppeteer(url: string, retryCount = 0): Promise<Puppete
       errorMessage.includes("Connection timeout");
     
     if (isConnectionError && retryCount < MAX_RETRIES) {
-      console.warn(`[Crawler] Connection error for ${url}, retrying in ${RETRY_DELAY}ms...`);
-      await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+      // Exponential backoff: 2s → 4s → 8s → 16s
+      const backoffDelay = RETRY_DELAY * Math.pow(2, retryCount);
+      console.warn(`[Crawler] Connection error for ${url}, retrying in ${backoffDelay}ms (attempt ${retryCount + 1}/${MAX_RETRIES})...`);
+      await new Promise(resolve => setTimeout(resolve, backoffDelay));
       return scrapeWithPuppeteer(url, retryCount + 1);
     }
     

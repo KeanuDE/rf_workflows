@@ -5,12 +5,14 @@ services:
     restart: unless-stopped
     environment:
       - TOKEN=6R0W53R135510
-      - MAX_CONCURRENT_SESSIONS=5
-      - CONNECTION_TIMEOUT=120000
-      - MAX_QUEUE_LENGTH=10
+      - MAX_CONCURRENT_SESSIONS=10
+      - CONNECTION_TIMEOUT=180000
+      - MAX_QUEUE_LENGTH=20
       - PREBOOT_CHROME=true
       - ENABLE_DEBUGGER=false
       - KEEP_ALIVE=true
+      - DEFAULT_LAUNCH_ARGS=["--disable-dev-shm-usage","--no-sandbox"]
+      - WORKSPACE_DELETE_EXPIRED=true
     ports:
       - "3100:3000"
     networks:

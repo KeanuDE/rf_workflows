@@ -574,8 +574,9 @@ function isCompanyByHeuristics(url: string): boolean {
       }
     }
 
-    console.log(`[CompanyValidator] [Heuristic] ${url} ambiguous, defaulting to true`);
-    return true;
+    // Im Zweifel als Portal behandeln - sicherer, da Crawler-Fehler nicht zu falschen Positiven führen
+    console.log(`[CompanyValidator] [Heuristic] ${url} ambiguous, defaulting to false (safer)`);
+    return false;
 
   } catch {
     return true;
@@ -602,8 +603,8 @@ export async function validateCompanyDomains(
 
   // Process sequentially to avoid Apify memory limits
   for (const item of domains) {
-    // Wait 1.5s between requests to respect rate limits
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    // Wait 3s between requests to avoid overwhelming browserless
+    await new Promise(resolve => setTimeout(resolve, 3000));
     
     const isCompany = await isSingleCompanyWebsite(item.domain);
     

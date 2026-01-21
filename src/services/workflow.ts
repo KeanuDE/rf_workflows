@@ -72,7 +72,7 @@ async function generateKeywords(
   try {
     const intentResult = await generateIntentKeywords(intentInput);
     console.log(`Generated ${intentResult.keywords.length} intent keywords`);
-    const keywords = selectTopKeywordsForSERP(intentResult, 12);
+    const keywords = selectTopKeywordsForSERP(intentResult, 50);
     console.log(`Selected ${keywords.length} top keywords for SERP analysis`);
     return keywords;
   } catch (error) {

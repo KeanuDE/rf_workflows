@@ -799,7 +799,7 @@ Nur Keywords, die alle Fragen bestehen, dürfen ausgegeben werden.
 
 Antworte NUR mit gültigem JSON im folgenden Format:
 {
-  "keywords": ["keyword1", "keyword2", ... bis zu 30 Keywords],
+  "keywords": ["keyword1", "keyword2", ... bis zu 60 Keywords],
   "clusters": [
     {"name": "Clustername", "keywords": ["keyword1", "keyword2"]},
     ...
@@ -824,7 +824,7 @@ Zweck/Nutzen: ${input.company_purpose}
 Standort: ${input.location}
 Operating Region: ${input.operating_region}
 
-Generiere exakt 30 Keywords mit thematischer Clusterung.`;
+Generiere mindestens 50 Keywords mit thematischer Clusterung.`;
 
   try {
     const response = await openai.chat.completions.create({
@@ -891,7 +891,7 @@ Generiere exakt 30 Keywords mit thematischer Clusterung.`;
  */
 export function selectTopKeywordsForSERP(
   result: IntentKeywordResult,
-  maxKeywords: number = 12
+  maxKeywords: number = 50
 ): string[] {
   const keywords = result.keywords;
   

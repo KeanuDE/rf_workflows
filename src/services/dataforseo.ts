@@ -316,7 +316,6 @@ export async function getSERPCompetitors(
       language_code: "de",
       item_types: ["organic"],
       limit: limit,
-      filters: [["full_domain_metrics.organic.count", ">", 5]],
     },
   ];
 
@@ -360,7 +359,6 @@ export async function getSERPCompetitors(
           language_code: "de",
           item_types: ["organic"],
           limit: limit,
-          filters: [["full_domain_metrics.organic.count", ">", 5]],
         },
       ];
       

@@ -43,11 +43,12 @@ export async function validateKeywordsQuality(
   customerGenre: string,
   input: WorkflowInput
 ): Promise<KeywordQualityScore[]> {
-  console.log(`[KeywordValidation] Validating ${keywords.length} keywords...`);
+  console.log(`[KeywordValidation] Validating top ${Math.min(keywords.length, 20)} keywords for quality...`);
 
   const results: KeywordQualityScore[] = [];
+  const topKeywords = keywords.slice(0, 20);
 
-  for (const keyword of keywords) {
+  for (const keyword of topKeywords) {
     try {
       const score = await scoreKeyword(keyword, locationCode, customerGenre, input);
       results.push(score);
@@ -224,13 +225,13 @@ export async function analyzeSERPQuality(
 
     console.log(`[SERPQuality] Found ${serpItems.length} SERP results`);
 
-    const top5Items = serpItems.slice(0, 5);
+    const top3Items = serpItems.slice(0, 3);
     const domainTypes = { companies: 0, portals: 0, shops: 0, other: 0 };
 
     let totalRank = 0;
     let localCount = 0;
 
-    for (const item of top5Items) {
+    for (const item of top3Items) {
       const url = item.url || item.domain || "";
       totalRank += item.rank_absolute || 0;
 
@@ -253,7 +254,7 @@ export async function analyzeSERPQuality(
       }
     }
 
-    const avgRank = totalRank / Math.max(top5Items.length, 1);
+    const avgRank = totalRank / Math.max(top3Items.length, 1);
 
     const qualityScore = Math.round(
       (domainTypes.companies * 10) -
@@ -264,7 +265,7 @@ export async function analyzeSERPQuality(
 
     return {
       keyword,
-      competitorCount: top5Items.length,
+      competitorCount: top3Items.length,
       avgCompetitorRank: Math.round(avgRank),
       domainTypes,
       hasLocalResults: localCount >= 2,

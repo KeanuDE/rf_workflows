@@ -32,6 +32,7 @@ src/
 - `src/services/workflow.ts:24` - `runSEOKeywordWorkflow()` Hauptfunktion
 - `src/services/openai.ts:467` - `isSingleCompanyWebsite()` KI-Validator
 - `src/services/crawler.ts:161` - Apify Scraper mit Circuit Breaker
+- `src/services/scraperQueue.ts` - Globale Queue für paralleles Scraping (max 4 gleichzeitig)
 - `src/constants/domainBlacklist.ts` - Portal-Filterung
 
 ## Build/Test/Lint Commands
@@ -131,7 +132,8 @@ PORT=3000
 
 - Rate Limiting: 3s Pause zwischen DataForSEO Batches
 - Rate Limiting: 2s Pause zwischen SERP Requests
-- Rate Limiting: 1.5s Pause zwischen Company-Validierung
+- Scraper Queue: Max 4 parallele Scrapes gleichzeitig, reste werden gequeued
+- Scraper Queue: Globale Singleton Instance (`src/services/scraperQueue.ts`)
 - Fallback: Keywords ohne Suchvolumen werden behalten
 - Fallback: Apify wenn Puppeteer scheitert
 - Fallback: Heuristik wenn Company-Validator scheitert

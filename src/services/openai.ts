@@ -754,36 +754,46 @@ function isCompanyByHeuristics(url: string): boolean {
 }
 
 /**
- * Validiert mehrere Domains SEQUENZIELL (nicht parallel!)
+ * Validiert mehrere Domains mit paralleler Queue (max 4 gleichzeitig)
  * Gibt zurück welche Domains echte Unternehmen sind
- * 
- * WICHTIG: Sequenziell statt Batch-Parallel um Apify's 32GB Memory-Limit nicht zu überschreiten
- * Parallel Apify Runs können schnell zu Memory-Limits führen (multiple 4GB jobs = 12GB+ gleichzeitig)
  */
 export async function validateCompanyDomains(
   domains: Array<{ domain: string; rank: number }>
 ): Promise<Array<{ domain: string; rank: number }>> {
-  console.log(`[CompanyValidator] Validating ${domains.length} domains sequentially...`);
+  console.log(`[CompanyValidator] Validating ${domains.length} domains with parallel queue...`);
 
   if (domains.length === 0) {
     return [];
   }
 
-  const validCompanies: Array<{ domain: string; rank: number }> = [];
+  const { scraperQueue } = await import("./scraperQueue");
 
-  // Process sequentially to avoid Apify memory limits
-  for (const item of domains) {
-    // Wait 3s between requests to avoid overwhelming browserless
-    await new Promise(resolve => setTimeout(resolve, 3000));
-    
-    const isCompany = await isSingleCompanyWebsite(item.domain);
-    
-    if (isCompany) {
-      validCompanies.push(item);
-    } else {
-      console.log(`[CompanyValidator] Filtered out portal: ${item.domain}`);
-    }
-  }
+  const results = await Promise.all(
+    domains.map(async (item) => {
+      try {
+        const crawlResult = await scraperQueue.enqueue(
+          { url: item.domain, what: "Ist dies eine einzelne Firma oder ein Portal?" },
+          true
+        );
+
+        const hasContent = crawlResult.content && crawlResult.content.trim().length > 0;
+        const isCompany = hasContent ? await isSingleCompanyWebsite(item.domain) : false;
+
+        if (isCompany) {
+          console.log(`[CompanyValidator] Valid company: ${item.domain}`);
+          return item;
+        } else {
+          console.log(`[CompanyValidator] Filtered out portal: ${item.domain}`);
+          return null;
+        }
+      } catch (error) {
+        console.error(`[CompanyValidator] Error validating ${item.domain}:`, error);
+        return null;
+      }
+    })
+  );
+
+  const validCompanies = results.filter((item): item is { domain: string; rank: number } => item !== null);
 
   console.log(`[CompanyValidator] Validated: ${validCompanies.length}/${domains.length} are companies`);
   return validCompanies;

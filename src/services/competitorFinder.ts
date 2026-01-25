@@ -223,68 +223,71 @@ async function classifyAndScoreCompetitors(
 
   const toClassify = sortedByTraffic.slice(0, maxToClassify);
   console.log(
-    `[CompetitorFinder] Classifying top ${toClassify.length} competitors by traffic...`
+    `[CompetitorFinder] Classifying top ${toClassify.length} competitors by traffic with parallel queue...`
   );
 
-  for (const comp of toClassify) {
-    console.log(`[CompetitorFinder] Processing: ${comp.domain}`);
+  const results = await Promise.all(
+    toClassify.map(async (comp) => {
+      console.log(`[CompetitorFinder] Processing: ${comp.domain}`);
 
-    try {
-      // 1. Entity Classification
-      const classification = await classifyCompetitorEntity(
-        `https://${comp.domain}`,
-        customerGenre,
-        customerEntityType
-      );
-
-      // Rate Limiting
-      await sleep(1500);
-
-      // Nur relevante Wettbewerber weiterverarbeiten
-      if (!classification.isCompany || !classification.isRelevantCompetitor) {
-        console.log(
-          `[CompetitorFinder] Skipped ${comp.domain}: ${classification.reason}`
+      try {
+        // 1. Entity Classification
+        const classification = await classifyCompetitorEntity(
+          `https://${comp.domain}`,
+          customerGenre,
+          customerEntityType
         );
-        continue;
+
+        // Nur relevante Wettbewerber weiterverarbeiten
+        if (!classification.isCompany || !classification.isRelevantCompetitor) {
+          console.log(
+            `[CompetitorFinder] Skipped ${comp.domain}: ${classification.reason}`
+          );
+          return null;
+        }
+
+        // 2. Social Media Data
+        const socialData = await getCompetitorSocialData(comp.domain);
+
+        // 3. SEO Score berechnen (0-100)
+        const seoScore = calculateSEOScore(comp);
+
+        // 4. Overall Score (50% SEO + 50% Social)
+        const overallScore = Math.round(seoScore * 0.5 + socialData.socialScore * 0.5);
+
+        const profile: CompetitorProfile = {
+          domain: comp.domain,
+          seoTraffic: comp.full_domain_metrics?.organic?.etv || 0,
+          rankedKeywords: comp.full_domain_metrics?.organic?.count || 0,
+          avgPosition: comp.avg_position || 0,
+          entityType: classification.entityType,
+          detectedGenre: classification.detectedGenre,
+          isRelevantCompetitor: true,
+          socialLinks: socialData.socialLinks,
+          instagramFollowers: socialData.instagram?.followersCount || null,
+          facebookLikes: socialData.facebook?.likes || null,
+          facebookFollowers: socialData.facebook?.followers || null,
+          seoScore,
+          socialScore: socialData.socialScore,
+          overallScore,
+        };
+
+        console.log(
+          `[CompetitorFinder] Added ${comp.domain}: SEO=${seoScore}, Social=${socialData.socialScore}, Overall=${overallScore}`
+        );
+
+        return profile;
+      } catch (error) {
+        console.error(`[CompetitorFinder] Error processing ${comp.domain}:`, error);
+        return null;
       }
+    })
+  );
 
-      // 2. Social Media Data
-      const socialData = await getCompetitorSocialData(comp.domain);
-
-      // 3. SEO Score berechnen (0-100)
-      const seoScore = calculateSEOScore(comp);
-
-      // 4. Overall Score (50% SEO + 50% Social)
-      const overallScore = Math.round(seoScore * 0.5 + socialData.socialScore * 0.5);
-
-      const profile: CompetitorProfile = {
-        domain: comp.domain,
-        seoTraffic: comp.full_domain_metrics?.organic?.etv || 0,
-        rankedKeywords: comp.full_domain_metrics?.organic?.count || 0,
-        avgPosition: comp.avg_position || 0,
-        entityType: classification.entityType,
-        detectedGenre: classification.detectedGenre,
-        isRelevantCompetitor: true,
-        socialLinks: socialData.socialLinks,
-        instagramFollowers: socialData.instagram?.followersCount || null,
-        facebookLikes: socialData.facebook?.likes || null,
-        facebookFollowers: socialData.facebook?.followers || null,
-        seoScore,
-        socialScore: socialData.socialScore,
-        overallScore,
-      };
-
-      profiles.push(profile);
-
-      console.log(
-        `[CompetitorFinder] Added ${comp.domain}: SEO=${seoScore}, Social=${socialData.socialScore}, Overall=${overallScore}`
-      );
-    } catch (error) {
-      console.error(`[CompetitorFinder] Error processing ${comp.domain}:`, error);
-    }
-  }
-
-  // Sortiere nach Overall Score
+  // Filter null results and sort by Overall Score
+  profiles.push(
+    ...results.filter((p): p is CompetitorProfile => p !== null)
+  );
   profiles.sort((a, b) => b.overallScore - a.overallScore);
 
   return profiles;

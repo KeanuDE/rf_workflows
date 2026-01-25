@@ -199,6 +199,7 @@ export interface KeywordResult {
   }>;
   search_volume: number;
   monthly_searches?: MonthlySearch[];
+  serpScore: number;
 }
 
 export interface WorkflowOutput {

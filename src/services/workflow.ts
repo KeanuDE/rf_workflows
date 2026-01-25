@@ -170,6 +170,20 @@ function filterValidDomains(
     .sort((a, b) => a.rank - b.rank);
 }
 
+function calculateSERPScore(keywordResult: KeywordResult): number {
+  const competitorCount = keywordResult.domains.length;
+
+  if (competitorCount === 0) {
+    return 0;
+  }
+
+  const topCompetitor = keywordResult.domains[0];
+  const rankScore = Math.max(0, (10 - (topCompetitor?.rank ?? 11)) / 10) * 50;
+  const competitorScore = Math.min(competitorCount, 10) * 5;
+
+  return Math.round(rankScore + competitorScore);
+}
+
 async function processSERPKeyword(
   keywordData: KeywordData,
   locationCode: number,
@@ -190,12 +204,18 @@ async function processSERPKeyword(
     const domains = await validateCompanyDomains(preliminaryDomains);
     console.log(`    After AI validation: ${domains.length} regional competitors`);
 
-    return {
+    const result = {
       keyword: keywordData.keyword,
       search_volume: keywordData.search_volume || 0,
       monthly_searches: keywordData.monthly_searches || [],
       domains: domains,
+      serpScore: 0,
     };
+
+    result.serpScore = calculateSERPScore(result);
+    console.log(`    SERP Score: ${result.serpScore} (rank: ${result.search_volume || 0})`);
+
+    return result;
   } catch (error) {
     console.error(`    Error getting SERP for ${keywordData.keyword}:`, error);
     return {
@@ -203,6 +223,7 @@ async function processSERPKeyword(
       search_volume: keywordData.search_volume || 0,
       monthly_searches: keywordData.monthly_searches || [],
       domains: [],
+      serpScore: 0,
     };
   }
 }

@@ -282,13 +282,11 @@ export async function getKeywordSearchVolumeBatched(
  *
  * Endpoint: /dataforseo_labs/google/serp_competitors/live
  *
- * Vorteile gegenüber Standard SERP API:
- * - Batch-Verarbeitung: Bis zu 200 Keywords in einem Request
- * - Vorselektiert echte Wettbewerber (keine Portale)
- * - Liefert Traffic-Metriken und Ranking-Daten
+ * WICHTIG: Labs API hat eigene Location-Datenbank (anders als Keywords API).
+ * Nutze location_name statt location_code für maximale Kompatibilität.
  *
  * @param keywords Array von Keywords (max 200)
- * @param locationCode DataForSEO Location Code
+ * @param locationCode DataForSEO Location Code (wird in location_name umgewandelt)
  * @param limit Max Anzahl der Wettbewerber (default 30)
  */
 export async function getSERPCompetitors(
@@ -297,7 +295,7 @@ export async function getSERPCompetitors(
   limit: number = 30
 ): Promise<SERPCompetitorItem[]> {
   console.log(
-    `[DataForSEO Labs] Getting SERP Competitors for ${keywords.length} keywords (location: ${locationCode})`
+    `[DataForSEO Labs] Getting SERP Competitors for ${keywords.length} keywords (location code: ${locationCode})`
   );
   console.log(`[DataForSEO Labs] Keywords sample:`, keywords.slice(0, 5));
 
@@ -306,39 +304,41 @@ export async function getSERPCompetitors(
   // Max 200 Keywords pro Request (API Limit)
   const keywordsToUse = keywords.slice(0, 200);
 
+  // Labs API Location Mapping:
+  // Keywords API location codes sind nicht immer valide für Labs API.
+  // Nutze location_name für bessere Kompatibilität.
+  const locationName = getLocationNameForCode(locationCode);
+
   const body = [
     {
       keywords: keywordsToUse,
-      location_code: locationCode,
+      location_name: locationName,
       language_code: "de",
-      item_types: ["organic"], // Nur organische Ergebnisse, keine Ads
+      item_types: ["organic"],
       limit: limit,
-      // Optional: Filter für Mindest-Traffic
-      // filters: [["full_domain_metrics.organic.count", ">", 5]],
+      filters: [["full_domain_metrics.organic.count", ">", 5]],
     },
   ];
 
   try {
-    const response =
-      await fetchDataForSEO<DataForSEOLabsSERPCompetitorsResponse>(
-        endpoint,
-        "POST",
-        body,
-        true
-      );
+    const response = await fetchDataForSEO<DataForSEOLabsSERPCompetitorsResponse>(
+      endpoint,
+      "POST",
+      body,
+      true
+    );
 
     const result = response.tasks?.[0]?.result?.[0];
 
     if (!result || !result.items) {
-      console.warn(`[DataForSEO Labs] No competitors found`);
+      console.warn(`[DataForSEO Labs] No competitors found for location: ${locationName}`);
       return [];
     }
 
     console.log(
-      `[DataForSEO Labs] Found ${result.items.length} competitors (total: ${result.total_count})`
+      `[DataForSEO Labs] Found ${result.items.length} competitors via location="${locationName}"`
     );
 
-    // Log Top 5 Wettbewerber
     result.items.slice(0, 5).forEach((item, i) => {
       console.log(
         `[DataForSEO Labs]   ${i + 1}. ${item.domain} - Traffic: ${item.full_domain_metrics?.organic?.etv || 0}, Keywords: ${item.full_domain_metrics?.organic?.count || 0}`
@@ -348,8 +348,80 @@ export async function getSERPCompetitors(
     return result.items;
   } catch (error) {
     console.error(`[DataForSEO Labs] Error getting SERP competitors:`, error);
+    
+    // Fallback: Versuche mit Deutschland wenn Fehler
+    if (locationName !== "Germany") {
+      console.warn(`[DataForSEO Labs] Retrying with Germany fallback.`);
+      
+      const fallbackBody = [
+        {
+          keywords: keywordsToUse,
+          location_name: "Germany",
+          language_code: "de",
+          item_types: ["organic"],
+          limit: limit,
+          filters: [["full_domain_metrics.organic.count", ">", 5]],
+        },
+      ];
+      
+      try {
+        const fallbackResponse = await fetchDataForSEO<DataForSEOLabsSERPCompetitorsResponse>(
+          endpoint,
+          "POST",
+          fallbackBody,
+          true
+        );
+
+        const result = fallbackResponse.tasks?.[0]?.result?.[0];
+
+        if (result && result.items) {
+          console.log(`[DataForSEO Labs] Found ${result.items.length} competitors via Germany fallback`);
+          return result.items;
+        }
+      } catch (fallbackError) {
+        console.error(`[DataForSEO Labs] Germany fallback also failed:`, fallbackError);
+      }
+    }
+    
     return [];
   }
+}
+
+/**
+ * Wandelt DataForSEO Location Code in Labs API location_name um
+ * 
+ * Labs API hat begrenzte Location Liste. Nutze "Germany" für Bundesland
+ * oder Länder-Mapping für größere Einheiten.
+ */
+function getLocationNameForCode(locationCode: number): string {
+  const code = locationCode;
+  
+  // Deutschland-Bundesweites Fallback
+  if (code === 2276) return "Germany";
+  
+  // Labs API Locations (aus Docs)
+  const labsLocations: Record<number, string> = {
+    2840: "United States",
+    2846: "United Kingdom",
+    2284: "Germany",
+    // Weitere Labs-Locations können hier hinzugefügt werden
+  };
+  
+  // Fallback für deutsche Städte
+  if (code >= 2000 && code <= 3000) {
+    console.warn(`[DataForSEO Labs] Location code ${code} likely German city, using Germany`);
+    return "Germany";
+  }
+  
+  const name = labsLocations[code];
+  if (name) {
+    console.log(`[DataForSEO Labs] Mapped code ${code} to location name: ${name}`);
+    return name;
+  }
+  
+  // Default Fallback
+  console.warn(`[DataForSEO Labs] Unknown location code ${code}, defaulting to Germany`);
+  return "Germany";
 }
 
 /**

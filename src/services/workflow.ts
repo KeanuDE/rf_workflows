@@ -4,6 +4,7 @@ import type {
   KeywordResult,
   KeywordData,
   EntityType,
+  CompetitorProfile,
 } from "../types";
 import {
   findLocation,
@@ -352,7 +353,7 @@ export async function runSEOKeywordWorkflow(
     );
   }
 
-  let competitors = undefined;
+  let competitors: CompetitorProfile[] = [];
   
   try {
     const websiteContent = input.description || "";
@@ -376,6 +377,7 @@ export async function runSEOKeywordWorkflow(
     console.log(`Found ${competitors.length} relevant competitors`);
   } catch (error) {
     console.error("[Step 7] Competitor analysis failed:", error);
+    competitors = [];
   }
 
   const output: WorkflowOutput = {

@@ -115,19 +115,50 @@ async function discoverCompetitorsMultiLocation(
   locations: GermanLocation[],
   maxPerLocation: number = 30
 ): Promise<Map<string, SERPCompetitorItem>> {
+  console.log(`\n[CompetitorFinder] ===== COMPETITOR DISCOVERY START =====`);
+  console.log(`[CompetitorFinder] Keywords (${keywords.length}): ${keywords.slice(0, 5).join(", ")}...`);
+  console.log(`[CompetitorFinder] Locations: ${locations.map(l => l.name).join(", ")}`);
+  console.log(`[CompetitorFinder] Max per location: ${maxPerLocation}`);
+  
   const competitorMap = new Map<string, SERPCompetitorItem>();
+  let totalErrors = 0;
+  let totalLocationsProcessed = 0;
 
   for (const location of locations) {
-    console.log(`[CompetitorFinder] Searching SERP Competitors for ${location.name}...`);
+    totalLocationsProcessed++;
+    console.log(`\n[CompetitorFinder] ---- Location ${totalLocationsProcessed}/${locations.length}: ${location.name} (code: ${location.code}) ----`);
 
     try {
+      console.log(`[CompetitorFinder] Calling getSERPCompetitors API...`);
+      const startTime = Date.now();
+      
       const competitors = await getSERPCompetitors(
         keywords,
         location.code,
         maxPerLocation
       );
+      
+      const duration = Date.now() - startTime;
+      console.log(`[CompetitorFinder] API call completed in ${duration}ms`);
+      console.log(`[CompetitorFinder] Found ${competitors.length} competitors from API`);
+
+      if (competitors.length === 0) {
+        console.warn(`[CompetitorFinder] No competitors found for ${location.name}. Checking...`);
+        console.log(`[CompetitorFinder] - Keywords used: ${keywords.slice(0, 3).join(", ")}`);
+        console.log(`[CompetitorFinder] - Location code: ${location.code}`);
+        
+        if (keywords.length < 5) {
+          console.warn(`[CompetitorFinder] Not enough keywords for competitor discovery`);
+        }
+        
+        await sleep(2000);
+        continue;
+      }
 
       // Merge: Behalte höchsten Traffic-Score
+      let mergedCount = 0;
+      let skippedCount = 0;
+      
       for (const comp of competitors) {
         const existing = competitorMap.get(comp.domain);
         const newTraffic = comp.full_domain_metrics?.organic?.etv || 0;
@@ -135,20 +166,53 @@ async function discoverCompetitorsMultiLocation(
 
         if (!existing || newTraffic > existingTraffic) {
           competitorMap.set(comp.domain, comp);
+          if (existing) {
+            mergedCount++;
+          }
+        } else {
+          skippedCount++;
         }
       }
 
       console.log(
-        `[CompetitorFinder] ${location.name}: Found ${competitors.length} competitors, total unique: ${competitorMap.size}`
+        `[CompetitorFinder] ${location.name}: Found ${competitors.length} competitors | Merge: ${mergedCount} updated, ${skippedCount} skipped | Total unique: ${competitorMap.size}`
       );
+
+      // Log top 5 competitors
+      const topCompetitors = Array.from(competitorMap.values())
+        .sort((a, b) => (b.full_domain_metrics?.organic?.etv || 0) - (a.full_domain_metrics?.organic?.etv || 0))
+        .slice(0, 5);
+      
+      console.log(`[CompetitorFinder] Top 5 competitors so far:`);
+      topCompetitors.forEach((comp, i) => {
+        const traffic = comp.full_domain_metrics?.organic?.etv || 0;
+        const keywordsCount = comp.full_domain_metrics?.organic?.count || 0;
+        console.log(`[CompetitorFinder]   ${i + 1}. ${comp.domain} - Traffic: ${traffic}, Keywords: ${keywordsCount}`);
+      });
 
       // Rate Limiting zwischen Locations
       await sleep(2000);
     } catch (error) {
+      totalErrors++;
       console.error(`[CompetitorFinder] Error for ${location.name}:`, error);
+      console.error(`[CompetitorFinder] Error type: ${error instanceof Error ? error.constructor.name : 'Unknown'}`);
+      if (error instanceof Error) {
+        console.error(`[CompetitorFinder] Error message: ${error.message}`);
+        console.error(`[CompetitorFinder] Error stack: ${error.stack?.split('\n').slice(0, 3).join('\n')}`);
+      }
+      
+      if (totalErrors >= 2) {
+        console.warn(`[CompetitorFinder] Too many errors (${totalErrors}), breaking discovery loop`);
+        break;
+      }
     }
   }
 
+  console.log(`\n[CompetitorFinder] ===== COMPETITOR DISCOVERY END =====`);
+  console.log(`[CompetitorFinder] Total locations processed: ${totalLocationsProcessed}`);
+  console.log(`[CompetitorFinder] Total errors: ${totalErrors}`);
+  console.log(`[CompetitorFinder] Final unique competitors: ${competitorMap.size}`);
+  
   return competitorMap;
 }
 
@@ -352,45 +416,102 @@ export async function findAndAnalyzeCompetitors(
   fullLocation: string,
   maxCompetitors: number = 15
 ): Promise<CompetitorProfile[]> {
-  console.log(`[CompetitorFinder] Starting competitor analysis...`);
-  console.log(`[CompetitorFinder] Customer: ${customerWebsite}, Genre: ${customerGenre}, Type: ${customerEntityType}`);
-  console.log(`[CompetitorFinder] Region: ${operatingRegion}, Location: ${city}`);
-  console.log(`[CompetitorFinder] Keywords: ${keywords.length}`);
+  console.log(`\n${"=".repeat(70)}`);
+  console.log(`[CompetitorFinder] **** COMPETITOR ANALYSIS WORKFLOW START ****`);
+  console.log(`[CompetitorFinder] ${new Date().toISOString()}`);
+  console.log(`[CompetitorFinder] ${"=".repeat(70)}`);
+  console.log(`[CompetitorFinder] INPUT DATA:`);
+  console.log(`[CompetitorFinder] - Customer website: ${customerWebsite}`);
+  console.log(`[CompetitorFinder] - Customer genre: ${customerGenre}`);
+  console.log(`[CompetitorFinder] - Customer entity type: ${customerEntityType}`);
+  console.log(`[CompetitorFinder] - Operating region: ${operatingRegion}`);
+  console.log(`[CompetitorFinder] - Location: ${city} (${fullLocation})`);
+  console.log(`[CompetitorFinder] - Keywords count: ${keywords.length}`);
+  console.log(`[CompetitorFinder] - Keywords sample: ${keywords.slice(0, 5).join(", ")}`);
+  console.log(`[CompetitorFinder] - Max competitors to return: ${maxCompetitors}`);
+  console.log(``);
 
-  // 1. Get locations for search
-  const locations = await getLocationCodesForSearch(
-    operatingRegion,
-    city,
-    fullLocation
-  );
+  let competitors: CompetitorProfile[] = [];
 
-  // 2. Discover competitors via SERP Competitors API
-  const competitorMap = await discoverCompetitorsMultiLocation(
-    keywords.slice(0, 100), // Max 100 Keywords für Labs API
-    locations,
-    30
-  );
+  try {
+    // 1. Get locations for search
+    console.log(`[CompetitorFinder] Step 1: Getting locations for search...`);
+    const locations = await getLocationCodesForSearch(
+      operatingRegion,
+      city,
+      fullLocation
+    );
+    console.log(`[CompetitorFinder] Step 1 completed: ${locations.length} locations found`);
 
-  console.log(`[CompetitorFinder] Total unique competitors: ${competitorMap.size}`);
+    // 2. Discover competitors via SERP Competitors API
+    console.log(`[CompetitorFinder] Step 2: Discovering competitors via SERP API...`);
+    const competitorMap = await discoverCompetitorsMultiLocation(
+      keywords.slice(0, 100), // Max 100 Keywords für Labs API
+      locations,
+      30
+    );
 
-  // 3. Filter blacklisted domains
-  const allCompetitors = [...competitorMap.values()];
-  const filtered = filterBlacklistedDomains(allCompetitors, customerWebsite);
+    console.log(`[CompetitorFinder] Step 2 completed: ${competitorMap.size} unique competitors found`);
 
-  console.log(`[CompetitorFinder] After blacklist filter: ${filtered.length}`);
+    if (competitorMap.size === 0) {
+      console.warn(`[CompetitorFinder] No competitors discovered! Possible reasons:`);
+      console.warn(`[CompetitorFinder] 1. Location code invalid for: ${city}`);
+      console.warn(`[CompetitorFinder] 2. Keywords have no search volume`);
+      console.warn(`[CompetitorFinder] 3. SERP Competitors API error/rate limit`);
+      console.warn(`[CompetitorFinder] 4. Industry too niche for competition`);
+      console.log(`[CompetitorFinder] Continuing with empty competitor list...`);
+      return [];
+    }
 
-  // 4. Classify and score
-  const profiles = await classifyAndScoreCompetitors(
-    filtered,
-    customerGenre,
-    customerEntityType,
-    Math.min(maxCompetitors * 2, 25) // Klassifiziere mehr, um genug relevante zu finden
-  );
+    // 3. Filter blacklisted domains
+    console.log(`[CompetitorFinder] Step 3: Filtering blacklisted domains...`);
+    const allCompetitors = [...competitorMap.values()];
+    const filtered = filterBlacklistedDomains(allCompetitors, customerWebsite);
+    console.log(`[CompetitorFinder] Step 3 completed: ${filtered.length}/${allCompetitors.length} competitors after blacklist filter`);
 
-  console.log(`[CompetitorFinder] Final relevant competitors: ${profiles.length}`);
+    // 4. Classify and score
+    console.log(`[CompetitorFinder] Step 4: Classifying and scoring competitors...`);
+    const profiles = await classifyAndScoreCompetitors(
+      filtered,
+      customerGenre,
+      customerEntityType,
+      Math.min(maxCompetitors * 2, 25) // Klassifiziere mehr, um genug relevante zu finden
+    );
 
-  // Return top N
-  return profiles.slice(0, maxCompetitors);
+    console.log(`[CompetitorFinder] Step 4 completed: ${profiles.length} relevant competitors found`);
+    console.log(`[CompetitorFinder] Step 4 completed: ${allCompetitors.length - profiles.length} competitors filtered out (irrelevant)`);
+
+    // Return top N
+    competitors = profiles.slice(0, maxCompetitors);
+    console.log(`[CompetitorFinder] Step 5: Selecting top ${competitors.length} competitors by score...`);
+    
+    console.log(`\n[CompetitorFinder] FINAL COMPETITORS:`);
+    competitors.forEach((comp, i) => {
+      console.log(`[CompetitorFinder] ${i + 1}. ${comp.domain}`);
+      console.log(`[CompetitorFinder]    - SEO Score: ${comp.seoScore}`);
+      console.log(`[CompetitorFinder]    - Social Score: ${comp.socialScore}`);
+      console.log(`[CompetitorFinder]    - Overall Score: ${comp.overallScore}`);
+      console.log(`[CompetitorFinder]    - SEO Traffic: ${comp.seoTraffic}`);
+      console.log(`[CompetitorFinder]    - Keywords: ${comp.rankedKeywords}`);
+      console.log(`[CompetitorFinder]    - Entity Type: ${comp.entityType}`);
+      console.log(`[CompetitorFinder]    - Genre: ${comp.detectedGenre}`);
+      console.log(``);
+    });
+
+  } catch (error) {
+    console.error(`[CompetitorFinder] Fatal error in competitor analysis:`, error);
+    if (error instanceof Error) {
+      console.error(`[CompetitorFinder] Error message: ${error.message}`);
+      console.error(`[CompetitorFinder] Error stack: ${error.stack?.split('\n').slice(0, 5).join('\n')}`);
+    }
+    throw error;
+  }
+
+  console.log(`[CompetitorFinder] **** COMPETITOR ANALYSIS WORKFLOW COMPLETE ****`);
+  console.log(`[CompetitorFinder] Total time: Started at: ${new Date().toISOString()}`);
+  console.log(`[CompetitorFinder] ${"=".repeat(70)}\n`);
+  
+  return competitors;
 }
 
 // ============================================================================

@@ -11,9 +11,31 @@ const BROWSERLESS_WS_ENDPOINT =
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 2000; // 2 Sekunden Basis-Delay
 
+// Extrahiert aussagekräftige Fehlermeldung aus verschiedenen Error-Typen
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  
+  if (error && typeof error === 'object' && 'message' in error) {
+    return String(error.message);
+  }
+  
+  const errorEvent = error as { error?: Error; message?: string; toString?: () => string } | null;
+  if (errorEvent?.error instanceof Error) {
+    return errorEvent.error.message;
+  }
+  
+  if (errorEvent?.message) {
+    return errorEvent.message;
+  }
+  
+  return String(error);
+}
+
 // Prüft ob es ein Connection-Error ist, der einen Retry rechtfertigt
 function isConnectionError(error: unknown): boolean {
-  const errorMessage = error instanceof Error ? error.message : String(error);
+  const errorMessage = getErrorMessage(error);
   const errorCode = (error as { code?: string })?.code || "";
 
   return (
@@ -126,7 +148,7 @@ export async function scrapeWebsiteDetailed(
       finalUrl,
     };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = getErrorMessage(error);
     console.error(`[Scraper] Error scraping ${startUrl}:`, errorMessage);
 
     // Retry bei Connection-Errors

@@ -294,3 +294,55 @@ export interface ScraperOutput {
   startUrl: string; // Original URL
   finalUrl: string; // Finale URL nach Redirects
 }
+
+// ============================================================================
+// Keyword Quality Validation Types (NEU)
+// ============================================================================
+
+export interface KeywordQualityScore {
+  keyword: string;
+  isValid: boolean;
+  qualityScore: number; // 0-100
+  reasons: string[];
+  
+  searchVolumeScore: number; // 0-30
+  serpQualityScore: number; // 0-30
+  difficultyScore: number; // 0-20
+  relevanceScore: number; // 0-20
+  
+  searchVolume: number;
+  competition: string;
+  competitorCount: number;
+  avgCompetitorRank: number;
+}
+
+export interface SERPQualityAnalysis {
+  keyword: string;
+  competitorCount: number;
+  avgCompetitorRank: number;
+  domainTypes: {
+    companies: number;
+    portals: number;
+    shops: number;
+    other: number;
+  };
+  hasLocalResults: boolean;
+  qualityScore: number; // 0-100
+}
+
+export interface CompetitorKeywordExtraction {
+  keywords: Array<{
+    keyword: string;
+    searchVolume: number;
+    avgPosition: number;
+    competitorCount: number;
+  }>;
+  topKeywords: string[]; // Top 20 by volume
+}
+
+export interface ExpandedKeywordsResult {
+  generated: string[];
+  competitorKeywords: string[]; // From SERP Competitors
+  combined: string[];
+  highVolume: string[]; // Filtered by min volume
+}

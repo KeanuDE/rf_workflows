@@ -26,6 +26,14 @@ import {
   isBlacklistedDomain,
   hasAggregatorPattern,
 } from "../constants/domainBlacklist";
+import {
+  validateKeywordsQuality,
+  filterKeywordsByScore,
+  duplicateFilter,
+  extractCompetitorKeywords,
+  expandKeywordsWithVolume,
+  logKeywordValidation,
+} from "./keywordValidation";
 
 const GERMANY_LOCATION_CODE = 2276;
 const SERP_RATE_LIMIT_MS = 500;
@@ -285,30 +293,68 @@ export async function runSEOKeywordWorkflow(
   );
 
   console.log("\n[Step 3] Generating intent-based keywords...");
-  const validatedKeywords = await generateKeywords(input, locationInfo, finalLocationCode);
+  const generatedKeywords = await generateKeywords(input, locationInfo, finalLocationCode);
 
-  if (validatedKeywords.length === 0) {
+  if (generatedKeywords.length === 0) {
     console.error("No keywords generated! Returning empty result.");
     return { keywords: [], location: locationInfo.location, genre: locationInfo.genre };
   }
 
-  const keywordsToCheck = validatedKeywords.slice(0, 50);
-  console.log("\n[Step 4] Getting search volume for", keywordsToCheck.length, "keywords...");
+  console.log("\n[Step 4] Quality Validation Pipeline...");
+  
+  let keywordResults: any = [];
 
-  const keywordDataList = await getSearchVolume(keywordsToCheck, finalLocationCode);
-  const sortedKeywords = sortKeywords(keywordDataList, keywordsToCheck);
+  try {
+    const qualityScores = await validateKeywordsQuality(
+      generatedKeywords.slice(0, 50),
+      finalLocationCode,
+      locationInfo.genre,
+      input
+    );
 
-  console.log("\n[Step 5] Getting SERP results for top keywords...");
-  const keywordResults = await Promise.all(
-    sortedKeywords.map((kw) => processSERPKeyword(kw, finalLocationCode, input.website))
-  );
+    logKeywordValidation(qualityScores);
 
-  // Step 6: Competitor Analysis mit Labs API + Social Media
-  console.log("\n[Step 6] Analyzing competitors with Labs API + Social Media...");
+    const validKeywords = filterKeywordsByScore(qualityScores, 60);
+    console.log(`[Step 4] ${validKeywords.length}/${qualityScores.length} keywords passed quality check (score >= 60)`);
+
+    if (validKeywords.length < 10) {
+      console.warn("[Step 4] Not enough valid keywords, using fallback strategy");
+    }
+
+    const keywordsToCheck = validKeywords.map((k) => k.keyword).slice(0, 30);
+    const keywordsToCheckFallback = qualityScores.slice(0, 30).map((k) => k.keyword);
+
+    const finalKeywordsToCheck = keywordsToCheck.length < 10 ? keywordsToCheckFallback : keywordsToCheck;
+    console.log(`[Step 4] Using ${finalKeywordsToCheck.length} keywords for SERP analysis`);
+
+    console.log("\n[Step 5] Getting search volume for", finalKeywordsToCheck.length, "keywords...");
+
+    const keywordDataList = await getSearchVolume(finalKeywordsToCheck, finalLocationCode);
+    const sortedKeywords = sortKeywords(keywordDataList, finalKeywordsToCheck);
+
+    console.log("\n[Step 6] Getting SERP results for top keywords...");
+    keywordResults = await Promise.all(
+      sortedKeywords.map((kw) => processSERPKeyword(kw, finalLocationCode, input.website))
+    );
+
+  } catch (error) {
+    console.error("[Step 4] Quality validation failed, using default keywords:", error);
+    
+    const keywordsToCheck = generatedKeywords.slice(0, 50);
+    console.log("\n[Step 5] Getting search volume for", keywordsToCheck.length, "keywords...");
+
+    const keywordDataList = await getSearchVolume(keywordsToCheck, finalLocationCode);
+    const sortedKeywords = sortKeywords(keywordDataList, keywordsToCheck);
+
+    console.log("\n[Step 6] Getting SERP results for top keywords...");
+    keywordResults = await Promise.all(
+      sortedKeywords.map((kw) => processSERPKeyword(kw, finalLocationCode, input.website))
+    );
+  }
+
   let competitors = undefined;
   
   try {
-    // Erkenne Kunden-Entity-Typ aus Website-Content
     const websiteContent = input.description || "";
     const customerEntityType: EntityType = await detectCustomerEntityType(
       websiteContent,
@@ -316,22 +362,20 @@ export async function runSEOKeywordWorkflow(
     );
     console.log(`Customer entity type: ${customerEntityType}`);
 
-    // Finde und analysiere Wettbewerber
     competitors = await findAndAnalyzeCompetitors(
-      validatedKeywords.slice(0, 50), // Top 50 Keywords für Competitor Analysis
+      generatedKeywords.slice(0, 50),
       input.website,
       locationInfo.genre,
       customerEntityType,
       input.operating_region || "regional",
       locationInfo.location,
       locationInfo.fullLocation,
-      15 // Max 15 Wettbewerber im Ergebnis
+      15
     );
 
     console.log(`Found ${competitors.length} relevant competitors`);
   } catch (error) {
-    console.error("[Step 6] Competitor analysis failed:", error);
-    // Workflow läuft weiter ohne Competitor-Daten
+    console.error("[Step 7] Competitor analysis failed:", error);
   }
 
   const output: WorkflowOutput = {

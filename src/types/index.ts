@@ -277,3 +277,19 @@ export interface CrawlerInput {
 export interface CrawlerOutput {
   content: string;
 }
+
+// Scraper Types (für /scrape Endpunkt)
+export interface ScraperInput {
+  company: string; // URL der Website
+}
+
+export interface ScraperOutput {
+  body: string; // document.body.outerHTML
+  footer: string; // footer.outerHTML (leer wenn nicht vorhanden)
+  links: string[]; // Deduplizierte Links aus Body + Footer
+  css: string; // Inline CSS Rules (accessible stylesheets)
+  cssLinks: string[]; // Externe Stylesheet URLs
+  hadRedirect: boolean; // Redirect stattgefunden?
+  startUrl: string; // Original URL
+  finalUrl: string; // Finale URL nach Redirects
+}

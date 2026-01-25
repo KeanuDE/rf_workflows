@@ -754,27 +754,25 @@ function isCompanyByHeuristics(url: string): boolean {
 }
 
 /**
- * Validiert mehrere Domains mit paralleler Queue (max 4 gleichzeitig)
+ * Validiert mehrere Domains parallel
  * Gibt zurück welche Domains echte Unternehmen sind
  */
 export async function validateCompanyDomains(
   domains: Array<{ domain: string; rank: number }>
 ): Promise<Array<{ domain: string; rank: number }>> {
-  console.log(`[CompanyValidator] Validating ${domains.length} domains with parallel queue...`);
+  console.log(`[CompanyValidator] Validating ${domains.length} domains in parallel...`);
 
   if (domains.length === 0) {
     return [];
   }
 
-  const { scraperQueue } = await import("./scraperQueue");
-
   const results = await Promise.all(
     domains.map(async (item) => {
       try {
-        const crawlResult = await scraperQueue.enqueue(
-          { url: item.domain, what: "Ist dies eine einzelne Firma oder ein Portal?" },
-          true
-        );
+        const crawlResult = await crawlWebsiteLightweight({
+          url: item.domain,
+          what: "Ist dies eine einzelne Firma oder ein Portal?"
+        });
 
         const hasContent = crawlResult.content && crawlResult.content.trim().length > 0;
         const isCompany = hasContent ? await isSingleCompanyWebsite(item.domain) : false;

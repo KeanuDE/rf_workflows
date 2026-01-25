@@ -12,6 +12,7 @@ import {
 } from "./dataforseo";
 import {
   findLocationAndGenre,
+  findLocationViaGoogleSearch,
   extractKeywordsFromDescription,
   extractKeywordsFromServices,
   generateIntentKeywords,
@@ -214,8 +215,46 @@ export async function runSEOKeywordWorkflow(
   console.log("=".repeat(60));
 
   console.log("\n[Step 1] Finding location and genre...");
-  const locationInfo = await findLocationAndGenre(input);
+  let locationInfo = await findLocationAndGenre(input);
   console.log("Location info:", JSON.stringify(locationInfo, null, 2));
+
+  // Fallback: Wenn Location ODER Genre fehlt, Google-Suche starten
+  const locationMissing = !locationInfo.location?.trim();
+  const genreMissing = !locationInfo.genre?.trim();
+  
+  if (locationMissing || genreMissing) {
+    console.log(`\n[Step 1b] Fallback needed - Location missing: ${locationMissing}, Genre missing: ${genreMissing}`);
+    console.log("[Step 1b] Starting Google search fallback with Firecrawl...");
+    
+    try {
+      const fallbackResult = await findLocationViaGoogleSearch(
+        input.company_name,
+        input.website
+      );
+      
+      if (fallbackResult) {
+        // Merge: Nur fehlende Werte überschreiben
+        locationInfo = {
+          location: locationInfo.location?.trim() || fallbackResult.location || "",
+          fullLocation: locationInfo.fullLocation?.trim() || fallbackResult.fullLocation || "",
+          genre: locationInfo.genre?.trim() || fallbackResult.genre || "",
+          entityType: locationInfo.entityType,
+        };
+        console.log("[Step 1b] Fallback result merged:", JSON.stringify(locationInfo, null, 2));
+      } else {
+        console.warn("[Step 1b] Fallback search returned no results");
+      }
+    } catch (error) {
+      console.error("[Step 1b] Fallback search failed:", error);
+    }
+    
+    // Letzte Chance: input.location verwenden wenn vorhanden
+    if (!locationInfo.location?.trim() && input.location?.trim()) {
+      console.log(`[Step 1b] Using input.location as last resort: "${input.location}"`);
+      locationInfo.location = input.location;
+      locationInfo.fullLocation = input.location;
+    }
+  }
 
   console.log("\n[Step 2] Getting location code from DataForSEO...");
   const finalLocationCode = await findLocationCode(

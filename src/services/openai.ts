@@ -294,6 +294,164 @@ Firmenbeschreibung: ${input.company_purpose.description}`;
 }
 
 /**
+ * Location Fallback via Google Search + Firecrawl
+ * Wird aufgerufen wenn findLocationAndGenre() keine Location/Genre findet
+ * 
+ * Strategie:
+ * 1. Google-Suche nach "{Firmenname} Standort Adresse" via Firecrawl
+ * 2. Top-Ergebnis (ohne eigene Domain und Portale) crawlen
+ * 3. OpenAI extrahiert Location + Genre aus dem gecrawlten Inhalt
+ */
+export async function findLocationViaGoogleSearch(
+  companyName: string,
+  website: string
+): Promise<LocationFinderOutput | null> {
+  // Dynamischer Import um zirkuläre Dependencies zu vermeiden
+  const { searchGoogle, scrapeWithFirecrawl } = await import("./firecrawl");
+  const { DOMAIN_BLACKLIST } = await import("../constants/domainBlacklist");
+  
+  console.log(`[LocationFallback] Starting Google search fallback for "${companyName}"`);
+  
+  // Extrahiere eigene Domain zum Ausfiltern
+  let ownDomain = "";
+  try {
+    ownDomain = new URL(website).hostname.toLowerCase().replace(/^www\./, "");
+  } catch {
+    console.warn(`[LocationFallback] Could not parse website URL: ${website}`);
+  }
+  
+  // Domains die für Location-Suche relevant sind (z.B. Google Maps, Branchenverzeichnisse)
+  const relevantForLocation = [
+    "google.com",
+    "google.de",
+    "maps.google",
+  ];
+  
+  // Versuche verschiedene Suchanfragen
+  const searchQueries = [
+    `${companyName} Standort Adresse`,
+    `${companyName} Impressum`,
+    `${companyName} Kontakt`,
+  ];
+  
+  for (const query of searchQueries) {
+    console.log(`[LocationFallback] Searching: "${query}"`);
+    
+    const urls = await searchGoogle(query, 10);
+    
+    if (urls.length === 0) {
+      console.log(`[LocationFallback] No results for query`);
+      continue;
+    }
+    
+    // Filtere URLs: Keine eigene Domain, keine Blacklist-Portale (ausser Google Maps)
+    const filteredUrls = urls.filter((url) => {
+      try {
+        const hostname = new URL(url).hostname.toLowerCase().replace(/^www\./, "");
+        
+        // Eigene Domain ausschliessen
+        if (hostname === ownDomain || hostname.includes(ownDomain)) {
+          return false;
+        }
+        
+        // Google Maps ist erlaubt
+        if (relevantForLocation.some(d => hostname.includes(d))) {
+          return true;
+        }
+        
+        // Blacklist-Portale ausschliessen
+        if (DOMAIN_BLACKLIST.some(bl => hostname.includes(bl))) {
+          return false;
+        }
+        
+        return true;
+      } catch {
+        return false;
+      }
+    });
+    
+    if (filteredUrls.length === 0) {
+      console.log(`[LocationFallback] All URLs filtered out`);
+      continue;
+    }
+    
+    // Crawle das erste relevante Ergebnis
+    const targetUrl = filteredUrls[0];
+    if (!targetUrl) continue;
+    
+    console.log(`[LocationFallback] Crawling: ${targetUrl}`);
+    const content = await scrapeWithFirecrawl(targetUrl);
+    
+    if (!content || content.trim().length < 50) {
+      console.log(`[LocationFallback] No useful content from ${targetUrl}`);
+      continue;
+    }
+    
+    // Extrahiere Location + Genre mit OpenAI
+    const result = await extractLocationFromContent(content, companyName);
+    
+    if (result && (result.location?.trim() || result.genre?.trim())) {
+      console.log(`[LocationFallback] Found via "${query}":`, JSON.stringify(result));
+      return result;
+    }
+  }
+  
+  console.log(`[LocationFallback] No location found via any search query`);
+  return null;
+}
+
+/**
+ * Extrahiert Location und Genre aus beliebigem Text-Content
+ * Wird von findLocationViaGoogleSearch() verwendet
+ */
+async function extractLocationFromContent(
+  content: string,
+  companyName: string
+): Promise<LocationFinderOutput | null> {
+  const systemPrompt = `Du bist ein Experte für die Extraktion von Firmendaten.
+Extrahiere aus dem gegebenen Text den STANDORT und die BRANCHE der Firma "${companyName}".
+
+Wichtig:
+- Bei Location nur die STADT angeben (z.B. "München", "Berlin")
+- Bei fullLocation Stadt mit Bundesland auf Englisch (z.B. "Munich, Bavaria")
+- Bei genre die Branche/Geschäftsbereich (z.B. "Heizung & Sanitär", "IT Beratung")
+- Wenn eine Information nicht gefunden wird, leeren String zurückgeben
+
+Antworte IMMER im folgenden JSON Format:
+{
+  "location": "STADT",
+  "fullLocation": "STADT, BUNDESLAND",
+  "genre": "BRANCHE"
+}`;
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: SMALL_MODEL,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { 
+          role: "user", 
+          content: `Firma: ${companyName}\n\nText:\n${content.substring(0, 6000)}`
+        },
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.1,
+    });
+
+    const responseContent = response.choices[0]?.message?.content;
+    if (!responseContent) {
+      return null;
+    }
+
+    const parsed = JSON.parse(responseContent) as LocationFinderOutput;
+    return parsed;
+  } catch (error) {
+    console.error(`[LocationFallback] OpenAI extraction error:`, error);
+    return null;
+  }
+}
+
+/**
  * Keyword Extractor Agent (by description)
  * Extrahiert Keywords aus der Firmenbeschreibung
  * MIT Tool für SERP-Validierung (wie im n8n Workflow)

@@ -111,10 +111,7 @@ async function legacyKeywordExtraction(
     ]);
 
     const mergedKeywords = [...descriptionKeywords.slice(0, 20), ...serviceKeywords.slice(0, 20)];
-    const isRegional = input.operating_region === "regional";
-    return isRegional
-      ? mergedKeywords.map((kw) => `${kw} ${location}`)
-      : mergedKeywords;
+    return mergedKeywords;
   } catch (fallbackError) {
     console.error("Fallback extraction also failed:", fallbackError);
     return [];

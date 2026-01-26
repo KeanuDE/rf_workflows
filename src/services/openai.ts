@@ -1137,10 +1137,11 @@ export async function generateIntentKeywords(
   const locationInstruction = isRegional
     ? `STANDORTLOGIK (VERBINDLICH):
 Da operating_region = "regional" gilt:
-- Jedes Keyword MUSS den Ort "${input.location}" enthalten
-- Generiere alle 30 Keywords mit diesem Ort
-- Beispiel korrekt: "Malerbetrieb ${input.location}", "Wohnung streichen lassen ${input.location}"
-- Beispiel falsch: "Malerbetrieb" (ohne Ort)`
+- KEINE Orte in den Keywords verwenden
+- Keywords rein thematisch generieren
+- Der Standort '${input.location}' wird separat übergeben, nicht in den Keywords eingebaut
+- Beispiel korrekt: "Malerbetrieb", "Wohnung streichen lassen", "Heizungswartung"
+- Beispiel falsch: "Malerbetrieb ${input.location}" (keine Keywords mit Stadt anhängen)`
     : `STANDORTLOGIK (VERBINDLICH):
 Da operating_region = "nationwide" gilt:
 - KEINE Orte in den Keywords verwenden

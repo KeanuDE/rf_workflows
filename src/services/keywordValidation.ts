@@ -13,6 +13,7 @@ import {
   getKeywordSearchVolumeBatched,
   getSERPCompetitors,
 } from "./dataforseo";
+import { isBlacklistedDomain } from "../constants/domainBlacklist";
 import { classifyCompetitorEntity, detectCustomerEntityType } from "./openai";
 
 const openai = new OpenAI({
@@ -286,6 +287,11 @@ export async function analyzeSERPQuality(
 
 async function isServiceBusinessDomain(url: string): Promise<"company" | "portal" | "shop" | "other"> {
   try {
+    // Erst zentrale Blacklist prüfen - diese hat Vorrang
+    if (isBlacklistedDomain(url)) {
+      return "portal";
+    }
+
     const hostname = new URL(url).hostname.toLowerCase().replace(/^www\./, "");
 
     const companyPatterns = [

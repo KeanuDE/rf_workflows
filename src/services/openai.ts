@@ -1027,14 +1027,15 @@ function createFallbackClassification(
       }
     }
 
-    // Default: Als potenziell relevant markieren, aber mit niedriger Confidence
+    // Default: Im Zweifel als NICHT relevant markieren (safer default)
+    // Lieber eine echte Firma ausfiltern als ein Portal durchlassen
     return {
-      isCompany: true,
+      isCompany: false,
       entityType: "unknown",
       detectedGenre: "unbekannt",
-      isRelevantCompetitor: true,
+      isRelevantCompetitor: false,
       confidence: 0.4,
-      reason: "Fallback-Heuristik, keine eindeutigen Signale",
+      reason: "Fallback-Heuristik, keine eindeutigen Signale - konservativ gefiltert",
     };
   } catch {
     return {

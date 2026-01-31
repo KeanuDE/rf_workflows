@@ -25,7 +25,7 @@ import {
 } from "./dataforseo";
 import { classifyCompetitorEntity } from "./openai";
 import { getCompetitorSocialData } from "./socialScraper";
-import { isBlacklistedDomain } from "../constants/domainBlacklist";
+import { isBlacklistedDomain, hasAggregatorPattern } from "../constants/domainBlacklist";
 import {
   TOP_5_GERMAN_CITIES,
   GERMANY_LOCATION_CODE,
@@ -219,6 +219,12 @@ function filterBlacklistedDomains(
     // Blacklist-Check
     if (isBlacklistedDomain(`https://${comp.domain}`)) {
       console.log(`[CompetitorFinder] Filtered blacklisted: ${comp.domain}`);
+      return false;
+    }
+
+    // Aggregator-Pattern-Check (z.B. /firmen/maler/, /branche/sanitaer/)
+    if (hasAggregatorPattern(`https://${comp.domain}`)) {
+      console.log(`[CompetitorFinder] Filtered aggregator pattern: ${comp.domain}`);
       return false;
     }
 

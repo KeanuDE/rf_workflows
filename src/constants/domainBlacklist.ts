@@ -37,6 +37,7 @@ export const DOMAIN_BLACKLIST = [
   "twitter.com",
   "pinterest.com",
   "myhammer.de",
+  "my-hammer.de",
   "check24.de",
   "homebell.com",
   "thermondo.de",
@@ -59,6 +60,17 @@ export const DOMAIN_BLACKLIST = [
   "sbz-online.de",
   "ikz.de",
   "haustec.de",
+  // Bewertungs- und Vergleichsportale
+  "jameda.de",
+  "werkenntdenbesten.de",
+  "kennstdueinen.de",
+  "auskunft.de",
+  "stadtbranchenbuch.com",
+  "hotfrog.de",
+  "tupalo.com",
+  "foursquare.com",
+  "tripadvisor.de",
+  "tripadvisor.com",
 ];
 
 export function isBlacklistedDomain(url: string): boolean {

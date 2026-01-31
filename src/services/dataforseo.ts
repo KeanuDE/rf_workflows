@@ -239,12 +239,13 @@ export async function getSERPResults(
 }
 
 /**
- * Batch-Verarbeitung für Search Volume (max 20 Keywords pro Request)
+ * Batch-Verarbeitung für Search Volume (max 100 Keywords pro Request)
+ * Erhöht von 20 auf 100 für bessere Performance bei DataForSEO API
  */
 export async function getKeywordSearchVolumeBatched(
   keywords: string[],
   locationCode: number,
-  batchSize: number = 20
+  batchSize: number = 100
 ): Promise<KeywordData[]> {
   console.log(`[DataForSEO] Batched search volume: ${keywords.length} keywords in batches of ${batchSize}`);
   

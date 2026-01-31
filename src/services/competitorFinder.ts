@@ -30,18 +30,22 @@ import {
   TOP_5_GERMAN_CITIES,
   GERMANY_LOCATION_CODE,
   getNearbyCities,
+  getStateForCity,
   type GermanLocation,
 } from "../constants/germanLocations";
+import { getLocationsForSearch } from "./locationService";
+import { validateCompetitorOnMaps } from "./googleMapsScraper";
 
 // ============================================================================
-// Multi-Location Strategy
+// Multi-Location Strategy (delegiert an LocationService)
 // ============================================================================
 
 /**
  * Ermittelt Location Codes basierend auf Operating Region
  *
- * Regional: Hauptort + bis zu 2 Nachbarstädte
- * Bundesweit: Top 5 deutsche Städte
+ * NEU: Verwendet Bundesland-basierte Umkreislogik:
+ * - Regional: Hauptort + Städte aus gleichem/Nachbar-Bundesländern (max 5)
+ * - Bundesweit: Top 5 deutsche Städte (Nord, Süd, Ost, West, Mitte)
  *
  * @param operatingRegion "regional" oder "nationwide"
  * @param city Die Hauptstadt des Kunden
@@ -54,48 +58,24 @@ export async function getLocationCodesForSearch(
 ): Promise<GermanLocation[]> {
   console.log(`[CompetitorFinder] Getting locations for ${operatingRegion} search...`);
 
-  if (operatingRegion !== "regional") {
-    // Bundesweit: Top 5 Städte
-    const locations = TOP_5_GERMAN_CITIES.map((c) => ({
-      name: c.name,
-      code: c.locationCode,
-    }));
-    console.log(
-      `[CompetitorFinder] Nationwide search: ${locations.map((l) => l.name).join(", ")}`
-    );
-    return locations;
+  // Bundesland für Logging ermitteln
+  const state = getStateForCity(city);
+  if (state) {
+    console.log(`[CompetitorFinder] Detected state for ${city}: ${state}`);
   }
 
-  // Regional: Hauptort + Nachbarstädte
-  const locations: GermanLocation[] = [];
-
-  // Hauptort
-  const mainCode = await findLocation(fullLocation, city);
-  if (mainCode) {
-    locations.push({ name: city, code: mainCode });
-    console.log(`[CompetitorFinder] Main location: ${city} (${mainCode})`);
-  } else {
-    console.warn(`[CompetitorFinder] Could not find location code for ${city}, using Germany default`);
-    locations.push({ name: "Germany", code: GERMANY_LOCATION_CODE });
-  }
-
-  // Nachbarstädte (max 2)
-  const nearbyCities = getNearbyCities(city);
-  for (const nearbyCity of nearbyCities.slice(0, 2)) {
-    try {
-      const nearbyCode = await findLocation(nearbyCity, nearbyCity);
-      if (nearbyCode) {
-        locations.push({ name: nearbyCity, code: nearbyCode });
-        console.log(`[CompetitorFinder] Nearby location: ${nearbyCity} (${nearbyCode})`);
-      }
-    } catch (error) {
-      console.warn(`[CompetitorFinder] Could not find location for ${nearbyCity}`);
-    }
-  }
+  // Delegiere an LocationService (neue Bundesland-basierte Logik)
+  const locations = await getLocationsForSearch(
+    operatingRegion,
+    city,
+    fullLocation,
+    5 // Max 5 Locations für regionale Suche
+  );
 
   console.log(
-    `[CompetitorFinder] Regional search: ${locations.map((l) => l.name).join(", ")}`
+    `[CompetitorFinder] ${operatingRegion} search locations: ${locations.map((l) => l.name).join(", ")}`
   );
+
   return locations;
 }
 
@@ -265,16 +245,22 @@ function extractHostname(url: string): string {
 /**
  * Klassifiziert und bewertet Wettbewerber
  *
+ * NEU: Optionale Google Maps Validierung für lokale Unternehmen
+ *
  * @param competitors Vorgefilterte Wettbewerber
  * @param customerGenre Branche des Kunden
  * @param customerEntityType Geschäftstyp des Kunden
+ * @param customerCity Stadt des Kunden (für Google Maps Validierung)
  * @param maxToClassify Max Anzahl zu klassifizierender Domains
+ * @param validateOnMaps Google Maps Validierung aktivieren (default: true)
  */
 async function classifyAndScoreCompetitors(
   competitors: SERPCompetitorItem[],
   customerGenre: string,
   customerEntityType: EntityType,
-  maxToClassify: number = 20
+  customerCity: string,
+  maxToClassify: number = 20,
+  validateOnMaps: boolean = true
 ): Promise<CompetitorProfile[]> {
   const profiles: CompetitorProfile[] = [];
 
@@ -313,11 +299,52 @@ async function classifyAndScoreCompetitors(
         // 2. Social Media Data
         const socialData = await getCompetitorSocialData(comp.domain);
 
-        // 3. SEO Score berechnen (0-100)
+        // 3. Google Maps Validierung (NEU)
+        let googleMapsVerified = false;
+        let googleMapsRating: number | null = null;
+        let googleMapsReviews = 0;
+        let isLocallyVerified = false;
+
+        if (validateOnMaps && customerCity) {
+          try {
+            const mapsValidation = await validateCompetitorOnMaps(
+              comp.domain,
+              customerCity
+            );
+
+            googleMapsVerified = mapsValidation.exists;
+            isLocallyVerified = mapsValidation.isLocalBusiness;
+
+            if (mapsValidation.place) {
+              googleMapsRating = mapsValidation.place.rating;
+              googleMapsReviews = mapsValidation.place.reviewCount;
+            }
+
+            console.log(
+              `[CompetitorFinder] Maps validation for ${comp.domain}: exists=${googleMapsVerified}, local=${isLocallyVerified}, rating=${googleMapsRating}`
+            );
+          } catch (mapsError) {
+            console.warn(
+              `[CompetitorFinder] Maps validation failed for ${comp.domain}:`,
+              mapsError
+            );
+          }
+        }
+
+        // 4. SEO Score berechnen (0-100)
         const seoScore = calculateSEOScore(comp);
 
-        // 4. Overall Score (50% SEO + 50% Social)
-        const overallScore = Math.round(seoScore * 0.5 + socialData.socialScore * 0.5);
+        // 5. Overall Score (50% SEO + 50% Social) + Maps Bonus
+        let overallScore = Math.round(seoScore * 0.5 + socialData.socialScore * 0.5);
+
+        // Maps Bonus: +10 für verifizierte lokale Unternehmen
+        if (isLocallyVerified) {
+          overallScore = Math.min(100, overallScore + 10);
+        }
+        // Maps Malus: -5 wenn nicht auf Maps gefunden (aber nur bei regionaler Suche)
+        else if (validateOnMaps && !googleMapsVerified) {
+          overallScore = Math.max(0, overallScore - 5);
+        }
 
         const profile: CompetitorProfile = {
           domain: comp.domain,
@@ -331,13 +358,24 @@ async function classifyAndScoreCompetitors(
           instagramFollowers: socialData.instagram?.followersCount || null,
           facebookLikes: socialData.facebook?.likes || null,
           facebookFollowers: socialData.facebook?.followers || null,
+          // LinkedIn Daten (NEU)
+          linkedinFollowers: socialData.linkedin?.followers || null,
+          linkedinEmployees: socialData.linkedin?.employeeCount || null,
+          // YouTube Daten (NEU)
+          youtubeSubscribers: socialData.youtube?.subscribers || null,
+          youtubeVideos: socialData.youtube?.videoCount || null,
+          // Google Maps Daten (NEU)
+          googleMapsVerified,
+          googleMapsRating,
+          googleMapsReviews,
+          isLocallyVerified,
           seoScore,
           socialScore: socialData.socialScore,
           overallScore,
         };
 
         console.log(
-          `[CompetitorFinder] Added ${comp.domain}: SEO=${seoScore}, Social=${socialData.socialScore}, Overall=${overallScore}`
+          `[CompetitorFinder] Added ${comp.domain}: SEO=${seoScore}, Social=${socialData.socialScore}, Maps=${googleMapsVerified ? "yes" : "no"}, Overall=${overallScore}`
         );
 
         return profile;
@@ -469,13 +507,16 @@ export async function findAndAnalyzeCompetitors(
     const filtered = filterBlacklistedDomains(allCompetitors, customerWebsite);
     console.log(`[CompetitorFinder] Step 3 completed: ${filtered.length}/${allCompetitors.length} competitors after blacklist filter`);
 
-    // 4. Classify and score
+    // 4. Classify and score (mit Google Maps Validierung für regionale Suche)
     console.log(`[CompetitorFinder] Step 4: Classifying and scoring competitors...`);
+    const validateOnMaps = operatingRegion === "regional";
     const profiles = await classifyAndScoreCompetitors(
       filtered,
       customerGenre,
       customerEntityType,
-      Math.min(maxCompetitors * 2, 25) // Klassifiziere mehr, um genug relevante zu finden
+      city, // Stadt für Google Maps Validierung
+      Math.min(maxCompetitors * 2, 25), // Klassifiziere mehr, um genug relevante zu finden
+      validateOnMaps // Google Maps nur bei regionaler Suche
     );
 
     console.log(`[CompetitorFinder] Step 4 completed: ${profiles.length} relevant competitors found`);
@@ -495,6 +536,9 @@ export async function findAndAnalyzeCompetitors(
       console.log(`[CompetitorFinder]    - Keywords: ${comp.rankedKeywords}`);
       console.log(`[CompetitorFinder]    - Entity Type: ${comp.entityType}`);
       console.log(`[CompetitorFinder]    - Genre: ${comp.detectedGenre}`);
+      if (comp.googleMapsVerified !== undefined) {
+        console.log(`[CompetitorFinder]    - Google Maps: ${comp.googleMapsVerified ? "verified" : "not found"} ${comp.googleMapsRating ? `(${comp.googleMapsRating}★, ${comp.googleMapsReviews} reviews)` : ""}`);
+      }
       console.log(``);
     });
 

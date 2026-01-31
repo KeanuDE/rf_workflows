@@ -627,13 +627,31 @@ Gebe deine Antwort als JSON aus:
 
 /**
  * Cache für bereits validierte Domains um Apify-Calls zu sparen
+ * LRU Cache mit max 1000 Einträgen
  */
 const companyValidationCache = new Map<string, boolean>();
+const MAX_CACHE_SIZE = 1000;
 
 /**
  * Cache für Entity-Klassifikation (inkl. Branche und Typ)
+ * LRU Cache mit max 1000 Einträgen
  */
 const entityClassificationCache = new Map<string, EntityClassification>();
+
+/**
+ * Fügt Eintrag zu Map hinzu mit LRU-Eviction
+ * Entfernt ältesten Eintrag wenn Max-Größe erreicht
+ */
+function addToLRUCache<T>(cache: Map<string, T>, key: string, value: T): void {
+  if (cache.size >= MAX_CACHE_SIZE) {
+    // Entferne ältesten Eintrag (erster in der Map)
+    const firstKey = cache.keys().next().value;
+    if (firstKey) {
+      cache.delete(firstKey);
+    }
+  }
+  cache.set(key, value);
+}
 
 /**
  * Prüft ob eine URL eine einzelne Firma oder ein Branchenportal ist
@@ -691,18 +709,18 @@ Antworte NUR mit gültigem JSON ohne weitere Erklärungen:
      const parsed = JSON.parse(content);
      const isSingle = parsed.isSingleCompany === true;
      
-     // Cache result
-     companyValidationCache.set(url, isSingle);
+     // Cache result mit LRU
+     addToLRUCache(companyValidationCache, url, isSingle);
      console.log(`[CompanyValidator] Result for ${url}: isSingleCompany=${isSingle}, reason=${parsed.reason}`);
      return isSingle;
 
-   } catch (error) {
-     console.error(`[CompanyValidator] Error checking ${url}:`, error);
-     const result = isCompanyByHeuristics(url);
-     // Cache fallback result too
-     companyValidationCache.set(url, result);
-     return result;
-   }
+    } catch (error) {
+      console.error(`[CompanyValidator] Error checking ${url}:`, error);
+      const result = isCompanyByHeuristics(url);
+      // Cache fallback result too
+      addToLRUCache(companyValidationCache, url, result);
+      return result;
+    }
  }
 
 /**
@@ -915,8 +933,8 @@ Antworte NUR mit gültigem JSON:
       reason: parsed.reason || "Keine Begründung",
     };
 
-    // Cache speichern
-    entityClassificationCache.set(cacheKey, result);
+    // Cache speichern mit LRU
+    addToLRUCache(entityClassificationCache, cacheKey, result);
 
     console.log(
       `[EntityClassifier] ${url}: isCompany=${result.isCompany}, type=${result.entityType}, genre="${result.detectedGenre}", relevant=${result.isRelevantCompetitor}, confidence=${result.confidence.toFixed(2)}`

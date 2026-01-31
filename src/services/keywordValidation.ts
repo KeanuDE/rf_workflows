@@ -361,23 +361,41 @@ export function duplicateFilter(
   similarityThreshold: number = 0.85
 ): string[] {
   const unique: string[] = [];
+  const seenSignatures = new Map<string, string>();
 
   for (const keyword of keywords) {
-    const isDuplicate = unique.some((existing) => {
-      const wordsA = keyword.toLowerCase().split(/\s+/);
-      const wordsB = existing.toLowerCase().split(/\s+/);
+    const normalized = keyword.toLowerCase().trim();
+    const words = normalized.split(/\s+/).sort().join(' ');
+    const signature = words;
 
-      if (wordsA.length === 0 || wordsB.length === 0) return false;
+    let isDuplicate = false;
+    
+    if (seenSignatures.has(signature)) {
+      isDuplicate = true;
+    } else {
+      for (const [existingSig, existingKw] of seenSignatures) {
+        const existingWords = existingSig.split(' ');
+        const currentWords = signature.split(' ');
+        
+        if (existingWords.length === 0 || currentWords.length === 0) continue;
 
-      const intersection = wordsA.filter((w) => wordsB.includes(w)).length;
-      const union = [...new Set([...wordsA, ...wordsB])].length;
+        const intersection = currentWords.filter((w) => existingWords.includes(w)).length;
+        const union = new Set([...currentWords, ...existingWords]).size;
 
-      const similarity = intersection / union;
+        if (union > 0) {
+          const similarity = intersection / union;
+          if (similarity >= similarityThreshold) {
+            isDuplicate = true;
+            break;
+          }
+        }
+      }
+    }
 
-      return similarity >= similarityThreshold;
-    });
-
-    if (!isDuplicate) unique.push(keyword);
+    if (!isDuplicate) {
+      unique.push(keyword);
+      seenSignatures.set(signature, keyword);
+    }
   }
 
   console.log(`[KeywordValidation] Filtered ${keywords.length - unique.length} duplicates`);

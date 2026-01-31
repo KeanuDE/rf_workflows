@@ -263,10 +263,45 @@ export interface CompetitorProfile {
   facebookLikes: number | null;
   facebookFollowers: number | null;
 
+  // Google Maps Daten (NEU)
+  googleMapsVerified?: boolean; // Auf Google Maps gefunden
+  googleMapsRating?: number | null; // Google Rating (1-5)
+  googleMapsReviews?: number; // Anzahl Bewertungen
+  isLocallyVerified?: boolean; // Hat lokale Adresse auf Maps
+
+  // LinkedIn Daten (NEU)
+  linkedinFollowers?: number | null;
+  linkedinEmployees?: string | null;
+
+  // YouTube Daten (NEU)
+  youtubeSubscribers?: number | null;
+  youtubeVideos?: number | null;
+
   // Kombinierter Score (50% SEO + 50% Social)
   seoScore: number; // 0-100 basierend auf Traffic/Keywords
   socialScore: number; // 0-100 basierend auf Social Engagement
   overallScore: number; // Gewichteter Gesamtscore
+}
+
+// LinkedIn Profile Types (NEU)
+export interface LinkedInCompany {
+  name: string;
+  followers: number;
+  employeeCount: string | null;
+  industry: string | null;
+  website: string | null;
+  description: string | null;
+  specialties: string[];
+}
+
+// YouTube Channel Types (NEU)
+export interface YouTubeChannel {
+  name: string;
+  subscribers: number;
+  videoCount: number;
+  viewCount: number;
+  description: string | null;
+  customUrl: string | null;
 }
 
 // Crawler Tool Types
